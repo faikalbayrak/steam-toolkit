@@ -98,7 +98,7 @@ namespace SteamToolkit
                 return;
             }
 
-            SteamUserStats.RequestCurrentStats();
+            SteamUserStats.RequestUserStats(SteamUser.GetSteamID());
             Log("Stats requested.");
 #endif
         }
