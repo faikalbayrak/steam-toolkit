@@ -33,6 +33,10 @@ namespace SteamToolkit
         [Tooltip("Run achievements in test mode (can be reset)")]
         public bool TestMode = false;
 
+        [Header("Web API")]
+        [Tooltip("Steam Web API Key (get from https://steamcommunity.com/dev/apikey)")]
+        public string WebApiKey = "";
+
         [Header("Services")]
         [Tooltip("Enable Achievement service")]
         public bool EnableAchievements = true;

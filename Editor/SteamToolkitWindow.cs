@@ -1,5 +1,6 @@
 ﻿using System.Collections.Generic;
 using UnityEngine;
+using UnityEngine.Networking;
 using UnityEditor;
 #if !DISABLESTEAMWORKS
 using Steamworks;
@@ -379,27 +380,273 @@ namespace SteamToolkit.Editor
 
         private Vector2 _achievementsScrollPosition;
         private List<AchievementInfo> _cachedAchievements = new List<AchievementInfo>();
+        private List<WebAchievementInfo> _webAchievements = new List<WebAchievementInfo>();
+        private Dictionary<string, float> _globalPercentages = new Dictionary<string, float>();
         private bool _achievementsLoaded;
+        private bool _webAchievementsLoading;
+        private string _webAchievementsError;
+        private Dictionary<string, Texture2D> _achievementIconCache = new Dictionary<string, Texture2D>();
 
         private void DrawAchievementsTab()
         {
             GUILayout.Label("Achievements", EditorStyles.boldLabel);
             EditorGUILayout.Space(5);
 
-            if (!Application.isPlaying)
+            // Play Mode - Runtime API
+            if (Application.isPlaying)
+            {
+                DrawPlayModeAchievements();
+            }
+            // Edit Mode - Web API
+            else
+            {
+                DrawEditModeAchievements();
+            }
+        }
+
+        private void DrawEditModeAchievements()
+        {
+            if (_config == null)
+            {
+                DrawNoConfigWarning();
+                return;
+            }
+
+            // API Key check
+            if (string.IsNullOrEmpty(_config.WebApiKey))
             {
                 EditorGUILayout.BeginVertical(_boxStyle);
-                EditorGUILayout.HelpBox("Enter Play Mode to manage achievements.", MessageType.Info);
-                
+                EditorGUILayout.HelpBox(
+                    "Steam Web API Key required to view achievements in Edit Mode.\n\n" +
+                    "1. Go to: https://steamcommunity.com/dev/apikey\n" +
+                    "2. Generate an API key\n" +
+                    "3. Paste it in Settings tab → Web API Key",
+                    MessageType.Info
+                );
+
                 EditorGUILayout.Space(5);
-                if (GUILayout.Button("Enter Play Mode", GUILayout.Height(30)))
+                EditorGUILayout.BeginHorizontal();
+                
+                if (GUILayout.Button("Get API Key", GUILayout.Height(25)))
+                {
+                    Application.OpenURL("https://steamcommunity.com/dev/apikey");
+                }
+                
+                if (GUILayout.Button("Go to Settings", GUILayout.Height(25)))
+                {
+                    _currentTab = Tab.Settings;
+                }
+                
+                EditorGUILayout.EndHorizontal();
+                EditorGUILayout.EndVertical();
+                
+                EditorGUILayout.Space(10);
+                
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Or enter Play Mode to use Runtime API.", MessageType.Info);
+                if (GUILayout.Button("Enter Play Mode", GUILayout.Height(25)))
                 {
                     EditorApplication.isPlaying = true;
                 }
                 EditorGUILayout.EndVertical();
+                
                 return;
             }
 
+            // Toolbar
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.BeginHorizontal();
+
+            if (_webAchievementsLoading)
+            {
+                GUILayout.Label("Loading...", EditorStyles.boldLabel);
+            }
+            else
+            {
+                if (GUILayout.Button("Fetch from Steam", GUILayout.Width(120)))
+                {
+                    FetchWebAchievements();
+                }
+            }
+
+            GUILayout.FlexibleSpace();
+            GUILayout.Label($"{_webAchievements.Count} Achievements", EditorStyles.boldLabel);
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+
+            // Error message
+            if (!string.IsNullOrEmpty(_webAchievementsError))
+            {
+                EditorGUILayout.HelpBox(_webAchievementsError, MessageType.Error);
+            }
+
+            EditorGUILayout.Space(5);
+
+            // Achievement list
+            if (_webAchievements.Count == 0 && !_webAchievementsLoading)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Click 'Fetch from Steam' to load achievements.", MessageType.Info);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            _achievementsScrollPosition = EditorGUILayout.BeginScrollView(_achievementsScrollPosition);
+
+            foreach (var achievement in _webAchievements)
+            {
+                DrawWebAchievementItem(achievement);
+            }
+
+            EditorGUILayout.EndScrollView();
+        }
+
+        private void FetchWebAchievements()
+        {
+            _webAchievementsLoading = true;
+            _webAchievementsError = null;
+
+            SteamWebAPI.GetAchievementSchema(
+                _config.WebApiKey,
+                _config.AppId,
+                achievements =>
+                {
+                    _webAchievements = achievements;
+                    _webAchievementsLoading = false;
+                    
+                    // Also fetch global percentages
+                    FetchGlobalPercentages();
+                    
+                    Repaint();
+                },
+                error =>
+                {
+                    _webAchievementsError = error;
+                    _webAchievementsLoading = false;
+                    Repaint();
+                }
+            );
+        }
+
+        private void FetchGlobalPercentages()
+        {
+            SteamWebAPI.GetGlobalAchievementPercentages(
+                _config.AppId,
+                percentages =>
+                {
+                    _globalPercentages = percentages;
+                    
+                    // Update achievements with percentages
+                    foreach (var ach in _webAchievements)
+                    {
+                        if (_globalPercentages.TryGetValue(ach.ApiName, out float percent))
+                        {
+                            ach.GlobalPercent = percent;
+                        }
+                    }
+                    
+                    Repaint();
+                },
+                error =>
+                {
+                    // Ignore percentage errors
+                    Debug.LogWarning($"[SteamToolkit] Could not fetch global percentages: {error}");
+                }
+            );
+        }
+
+        private void DrawWebAchievementItem(WebAchievementInfo achievement)
+        {
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.BeginHorizontal();
+
+            // Icon placeholder
+            var iconRect = GUILayoutUtility.GetRect(48, 48, GUILayout.Width(48), GUILayout.Height(48));
+            
+            if (achievement.IconTexture != null)
+            {
+                GUI.DrawTexture(iconRect, achievement.IconTexture, ScaleMode.ScaleToFit);
+            }
+            else
+            {
+                EditorGUI.DrawRect(iconRect, new Color(0.2f, 0.2f, 0.2f));
+                
+                // Load icon async
+                if (!string.IsNullOrEmpty(achievement.IconUrl) && !_achievementIconCache.ContainsKey(achievement.ApiName))
+                {
+                    LoadAchievementIcon(achievement);
+                }
+            }
+
+            GUILayout.Space(10);
+
+            // Info
+            EditorGUILayout.BeginVertical();
+            
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label(achievement.DisplayName, EditorStyles.boldLabel);
+            if (achievement.Hidden)
+            {
+                GUILayout.Label("[Hidden]", EditorStyles.miniLabel);
+            }
+            GUILayout.FlexibleSpace();
+            EditorGUILayout.EndHorizontal();
+            
+            GUILayout.Label(achievement.Description, EditorStyles.wordWrappedMiniLabel);
+            
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label($"API Name: {achievement.ApiName}", EditorStyles.miniLabel);
+            GUILayout.FlexibleSpace();
+            
+            if (achievement.GlobalPercent > 0)
+            {
+                GUILayout.Label($"Global: {achievement.GlobalPercent:F1}%", EditorStyles.miniLabel);
+            }
+            EditorGUILayout.EndHorizontal();
+            
+            EditorGUILayout.EndVertical();
+
+            // Copy button
+            if (GUILayout.Button("Copy ID", GUILayout.Width(60), GUILayout.Height(40)))
+            {
+                EditorGUIUtility.systemCopyBuffer = achievement.ApiName;
+                Debug.Log($"[SteamToolkit] Copied: {achievement.ApiName}");
+            }
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+        }
+
+        private void LoadAchievementIcon(WebAchievementInfo achievement)
+        {
+            _achievementIconCache[achievement.ApiName] = null; // Mark as loading
+
+            var request = UnityWebRequestTexture.GetTexture(achievement.IconUrl);
+            var operation = request.SendWebRequest();
+
+            EditorApplication.update += CheckIconRequest;
+
+            void CheckIconRequest()
+            {
+                if (!operation.isDone) return;
+
+                EditorApplication.update -= CheckIconRequest;
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    var texture = DownloadHandlerTexture.GetContent(request);
+                    achievement.IconTexture = texture;
+                    _achievementIconCache[achievement.ApiName] = texture;
+                    Repaint();
+                }
+
+                request.Dispose();
+            }
+        }
+
+        private void DrawPlayModeAchievements()
+        {
             if (!SteamCore.HasInstance || !SteamCore.Instance.IsInitialized)
             {
                 EditorGUILayout.BeginVertical(_boxStyle);
@@ -712,6 +959,23 @@ namespace SteamToolkit.Editor
             GUILayout.Label("Debug", EditorStyles.boldLabel);
             EditorGUILayout.PropertyField(_serializedConfig.FindProperty("EnableDebugLogs"));
             EditorGUILayout.PropertyField(_serializedConfig.FindProperty("TestMode"));
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(5);
+
+            // Web API Settings
+            EditorGUILayout.BeginVertical(_boxStyle);
+            GUILayout.Label("Web API", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(_serializedConfig.FindProperty("WebApiKey"), new GUIContent("API Key"));
+            
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("Get API Key", GUILayout.Height(20)))
+            {
+                Application.OpenURL("https://steamcommunity.com/dev/apikey");
+            }
+            EditorGUILayout.EndHorizontal();
+            
+            EditorGUILayout.HelpBox("Web API Key is used to fetch achievement data in Edit Mode. Get one from Steam.", MessageType.Info);
             EditorGUILayout.EndVertical();
 
             EditorGUILayout.Space(5);
