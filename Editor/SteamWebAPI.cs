@@ -46,7 +46,7 @@ namespace SteamToolkit.Editor
 
                 try
                 {
-                    var response = JsonUtility.FromJson<SchemaResponse>(request.responseText);
+                    var response = JsonUtility.FromJson<SchemaResponse>(request.downloadHandler.text);
                     
                     if (response?.game?.availableGameStats?.achievements == null)
                     {
@@ -107,7 +107,7 @@ namespace SteamToolkit.Editor
 
                 try
                 {
-                    var response = JsonUtility.FromJson<GlobalPercentagesResponse>(request.responseText);
+                    var response = JsonUtility.FromJson<GlobalPercentagesResponse>(request.downloadHandler.text);
                     
                     var percentages = new Dictionary<string, float>();
                     if (response?.achievementpercentages?.achievements != null)
