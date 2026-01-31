@@ -374,27 +374,198 @@ namespace SteamToolkit.Editor
 
         #endregion
 
-        #region Other Tabs (Placeholder)
+        #region Achievements Tab
+
+        private Vector2 _achievementsScrollPosition;
+        private List<AchievementInfo> _cachedAchievements = new List<AchievementInfo>();
+        private bool _achievementsLoaded;
 
         private void DrawAchievementsTab()
         {
             GUILayout.Label("Achievements", EditorStyles.boldLabel);
             EditorGUILayout.Space(5);
-            
+
+            if (!Application.isPlaying)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Enter Play Mode to manage achievements.", MessageType.Info);
+                
+                EditorGUILayout.Space(5);
+                if (GUILayout.Button("Enter Play Mode", GUILayout.Height(30)))
+                {
+                    EditorApplication.isPlaying = true;
+                }
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            if (!SteamCore.HasInstance || !SteamCore.Instance.IsInitialized)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Steam not initialized.", MessageType.Warning);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+#if !DISABLESTEAMWORKS
+            if (SteamCore.Instance.Achievements == null)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Achievement service not enabled. Enable it in Settings.", MessageType.Warning);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            if (!SteamCore.Instance.Achievements.StatsReceived)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Loading achievements from Steam...", MessageType.Info);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            // Toolbar
             EditorGUILayout.BeginVertical(_boxStyle);
-            EditorGUILayout.HelpBox(
-                "Achievement management:\n" +
-                "• View achievement list\n" +
-                "• Unlock/lock in test mode\n" +
-                "• Track progress\n" +
-                "• Bulk reset",
-                MessageType.Info
-            );
-            
+            EditorGUILayout.BeginHorizontal();
+
+            if (GUILayout.Button("Refresh", GUILayout.Width(80)))
+            {
+                RefreshAchievements();
+            }
+
+            if (GUILayout.Button("Unlock All", GUILayout.Width(80)))
+            {
+                if (EditorUtility.DisplayDialog("Unlock All", 
+                    "Are you sure you want to unlock all achievements?", "Yes", "Cancel"))
+                {
+                    UnlockAllAchievements();
+                }
+            }
+
+            if (GUILayout.Button("Reset All", GUILayout.Width(80)))
+            {
+                if (EditorUtility.DisplayDialog("Reset All", 
+                    "Are you sure you want to reset all achievements?\nThis only works in test mode.", "Yes", "Cancel"))
+                {
+                    SteamCore.Instance.Achievements.ResetAllAchievements();
+                    RefreshAchievements();
+                }
+            }
+
+            GUILayout.FlexibleSpace();
+
+            uint total = SteamCore.Instance.Achievements.GetAchievementCount();
+            int unlocked = _cachedAchievements.FindAll(a => a.IsUnlocked).Count;
+            GUILayout.Label($"{unlocked}/{total} Unlocked", EditorStyles.boldLabel);
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+
             EditorGUILayout.Space(5);
-            GUILayout.Label("Coming soon...", EditorStyles.centeredGreyMiniLabel);
+
+            // Load achievements if not loaded
+            if (!_achievementsLoaded)
+            {
+                RefreshAchievements();
+            }
+
+            // Achievement list
+            _achievementsScrollPosition = EditorGUILayout.BeginScrollView(_achievementsScrollPosition);
+
+            foreach (var achievement in _cachedAchievements)
+            {
+                DrawAchievementItem(achievement);
+            }
+
+            EditorGUILayout.EndScrollView();
+#endif
+        }
+
+#if !DISABLESTEAMWORKS
+        private void RefreshAchievements()
+        {
+            if (SteamCore.Instance?.Achievements == null) return;
+
+            _cachedAchievements = SteamCore.Instance.Achievements.GetAllAchievements();
+            _achievementsLoaded = true;
+            Repaint();
+        }
+
+        private void UnlockAllAchievements()
+        {
+            if (SteamCore.Instance?.Achievements == null) return;
+
+            foreach (var achievement in _cachedAchievements)
+            {
+                if (!achievement.IsUnlocked)
+                {
+                    SteamCore.Instance.Achievements.UnlockAchievement(achievement.Id, false);
+                }
+            }
+
+            SteamCore.Instance.Achievements.StoreStats();
+            RefreshAchievements();
+        }
+
+        private void DrawAchievementItem(AchievementInfo achievement)
+        {
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.BeginHorizontal();
+
+            // Status icon
+            var statusIcon = achievement.IsUnlocked ? "✓" : "○";
+            var statusColor = achievement.IsUnlocked ? Color.green : Color.gray;
+            var oldColor = GUI.color;
+            GUI.color = statusColor;
+            GUILayout.Label(statusIcon, GUILayout.Width(20));
+            GUI.color = oldColor;
+
+            // Info
+            EditorGUILayout.BeginVertical();
+            GUILayout.Label(achievement.DisplayName, EditorStyles.boldLabel);
+            GUILayout.Label(achievement.Description, EditorStyles.wordWrappedMiniLabel);
+            
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label($"ID: {achievement.Id}", EditorStyles.miniLabel);
+            
+            if (achievement.IsUnlocked && achievement.UnlockTime > 0)
+            {
+                GUILayout.Label($"Unlocked: {achievement.UnlockDateTime:g}", EditorStyles.miniLabel);
+            }
+            EditorGUILayout.EndHorizontal();
+            
+            EditorGUILayout.EndVertical();
+
+            // Actions
+            EditorGUILayout.BeginVertical(GUILayout.Width(70));
+            
+            if (achievement.IsUnlocked)
+            {
+                if (GUILayout.Button("Lock", GUILayout.Height(20)))
+                {
+                    SteamCore.Instance.Achievements.LockAchievement(achievement.Id);
+                    RefreshAchievements();
+                }
+            }
+            else
+            {
+                if (GUILayout.Button("Unlock", GUILayout.Height(20)))
+                {
+                    SteamCore.Instance.Achievements.UnlockAchievement(achievement.Id);
+                    RefreshAchievements();
+                }
+            }
+            
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.EndHorizontal();
             EditorGUILayout.EndVertical();
         }
+#endif
+
+        #endregion
+
+        #region Stats Tab
 
         private void DrawStatsTab()
         {

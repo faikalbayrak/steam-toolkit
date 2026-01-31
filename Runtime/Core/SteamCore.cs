@@ -73,6 +73,7 @@ namespace SteamToolkit
 
 #if !DISABLESTEAMWORKS
         public SteamAuthService Auth { get; private set; }
+        public SteamAchievementService Achievements { get; private set; }
 #endif
 
         #endregion
@@ -233,6 +234,13 @@ namespace SteamToolkit
             // Auth service is always active
             Auth = new SteamAuthService();
             Auth.Initialize();
+
+            // Achievement service
+            if (_config.EnableAchievements)
+            {
+                Achievements = new SteamAchievementService();
+                Achievements.Initialize();
+            }
 #endif
         }
 
@@ -248,6 +256,7 @@ namespace SteamToolkit
 #if !DISABLESTEAMWORKS
             // Dispose services
             Auth?.Dispose();
+            Achievements?.Dispose();
 
             // Shutdown Steam
             SteamAPI.Shutdown();
