@@ -19,8 +19,9 @@ Comprehensive Steam integration toolkit for Unity.
 - Unity 2021.3+
 - **Steamworks.NET** (must be installed separately)
 
-> **Important:** Steam Toolkit is built on top of Steamworks.NET.
-> You must install Steamworks.NET separately.
+> ⚠️ **IMPORTANT:** Steam Toolkit requires Steamworks.NET to work.
+> If Steamworks.NET is not installed, you will get compile errors.
+> Follow Step 1 below to install it first.
 
 ## Installation (3 Steps)
 
@@ -45,7 +46,7 @@ https://github.com/rlabrecque/Steamworks.NET.git?path=/com.rlabrecque.steamworks
 **Option A - Unity Package Manager (Git URL):**
 1. Window → Package Manager
 2. "+" → "Add package from git URL"
-3. Paste: `https://github.com/yourcompany/steam-toolkit.git`
+3. Paste: `https://github.com/faikalbayrak/steam-toolkit.git`
 
 **Option B - Manual:**
 1. Copy `SteamToolkit` folder to `Assets/`
@@ -145,6 +146,11 @@ SteamToolkit/
 ```
 
 ## FAQ
+
+### Getting compile errors after installing Steam Toolkit?
+
+Make sure Steamworks.NET is installed first! Steam Toolkit depends on it.
+See "Step 1: Install Steamworks.NET" above.
 
 ### Why isn't Steamworks.NET included?
 
