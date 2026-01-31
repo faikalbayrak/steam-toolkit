@@ -1,0 +1,649 @@
+﻿using UnityEngine;
+using UnityEditor;
+#if !DISABLESTEAMWORKS
+using Steamworks;
+#endif
+
+namespace SteamToolkit.Editor
+{
+    /// <summary>
+    /// Steam Toolkit Editor Window.
+    /// Central interface for managing all Steam operations.
+    /// </summary>
+    public class SteamToolkitWindow : EditorWindow
+    {
+        #region Tab Enum
+
+        private enum Tab
+        {
+            AppInfo,
+            Achievements,
+            Stats,
+            Inventory,
+            Leaderboards,
+            CloudSave,
+            Workshop,
+            BuildDeploy,
+            Settings
+        }
+
+        #endregion
+
+        #region Private Fields
+
+        private Tab _currentTab = Tab.AppInfo;
+        private Vector2 _scrollPosition;
+        private SteamConfig _config;
+        private SerializedObject _serializedConfig;
+
+        private GUIContent[] _tabContents;
+
+        private GUIStyle _headerStyle;
+        private GUIStyle _boxStyle;
+        private GUIStyle _tabButtonStyle;
+        private GUIStyle _selectedTabStyle;
+        private bool _stylesInitialized;
+
+        #endregion
+
+        #region Window Setup
+
+        [MenuItem("Tools/Steam Toolkit %#s", false, 100)]
+        public static void ShowWindow()
+        {
+            var window = GetWindow<SteamToolkitWindow>();
+            window.titleContent = new GUIContent("Steam Toolkit", EditorGUIUtility.IconContent("d_BuildSettings.Steam").image);
+            window.minSize = new Vector2(550, 450);
+            window.Show();
+        }
+
+        private void OnEnable()
+        {
+            LoadConfig();
+            InitializeTabContents();
+        }
+
+        private void LoadConfig()
+        {
+            _config = SteamConfig.Instance;
+
+            if (_config == null)
+            {
+                _config = FindOrCreateConfig();
+            }
+
+            if (_config != null)
+            {
+                _serializedConfig = new SerializedObject(_config);
+            }
+        }
+
+        private SteamConfig FindOrCreateConfig()
+        {
+            var guids = AssetDatabase.FindAssets("t:SteamConfig");
+            if (guids.Length > 0)
+            {
+                var path = AssetDatabase.GUIDToAssetPath(guids[0]);
+                return AssetDatabase.LoadAssetAtPath<SteamConfig>(path);
+            }
+
+            return null;
+        }
+
+        private void InitializeTabContents()
+        {
+            _tabContents = new GUIContent[]
+            {
+                new GUIContent(" App Info", EditorGUIUtility.IconContent("d_UnityEditor.GameView").image),
+                new GUIContent(" Achievements", EditorGUIUtility.IconContent("d_Favorite Icon").image),
+                new GUIContent(" Stats", EditorGUIUtility.IconContent("d_UnityEditor.ProfilerWindow").image),
+                new GUIContent(" Inventory", EditorGUIUtility.IconContent("d_Prefab Icon").image),
+                new GUIContent(" Leaderboards", EditorGUIUtility.IconContent("d_AlphabeticalSorting").image),
+                new GUIContent(" Cloud Save", EditorGUIUtility.IconContent("d_CloudConnect").image),
+                new GUIContent(" Workshop", EditorGUIUtility.IconContent("d_Import").image),
+                new GUIContent(" Build/Deploy", EditorGUIUtility.IconContent("d_BuildSettings.Standalone").image),
+                new GUIContent(" Settings", EditorGUIUtility.IconContent("d_Settings").image)
+            };
+        }
+
+        private void InitializeStyles()
+        {
+            if (_stylesInitialized) return;
+
+            _headerStyle = new GUIStyle(EditorStyles.boldLabel)
+            {
+                fontSize = 16,
+                alignment = TextAnchor.MiddleCenter,
+                margin = new RectOffset(0, 0, 10, 10)
+            };
+
+            _boxStyle = new GUIStyle("box")
+            {
+                padding = new RectOffset(15, 15, 10, 10),
+                margin = new RectOffset(5, 5, 5, 5)
+            };
+
+            _tabButtonStyle = new GUIStyle(EditorStyles.toolbarButton)
+            {
+                fixedHeight = 28,
+                alignment = TextAnchor.MiddleLeft,
+                padding = new RectOffset(10, 10, 5, 5),
+                fontSize = 11
+            };
+
+            _selectedTabStyle = new GUIStyle(_tabButtonStyle)
+            {
+                fontStyle = FontStyle.Bold
+            };
+
+            _stylesInitialized = true;
+        }
+
+        #endregion
+
+        #region GUI
+
+        private void OnGUI()
+        {
+            InitializeStyles();
+
+            EditorGUILayout.BeginHorizontal();
+
+            DrawTabList();
+            DrawSeparator();
+            DrawTabContent();
+
+            EditorGUILayout.EndHorizontal();
+        }
+
+        private void DrawSeparator()
+        {
+            var rect = EditorGUILayout.GetControlRect(false, GUILayout.Width(1));
+            rect.height = position.height;
+            EditorGUI.DrawRect(rect, new Color(0.15f, 0.15f, 0.15f));
+        }
+
+        private void DrawTabList()
+        {
+            EditorGUILayout.BeginVertical(GUILayout.Width(160));
+            
+            EditorGUILayout.Space(10);
+            GUILayout.Label("Steam Toolkit", _headerStyle);
+            EditorGUILayout.Space(5);
+
+            for (int i = 0; i < _tabContents.Length; i++)
+            {
+                var tab = (Tab)i;
+                var isSelected = _currentTab == tab;
+                var style = isSelected ? _selectedTabStyle : _tabButtonStyle;
+                
+                if (isSelected)
+                {
+                    var rect = GUILayoutUtility.GetRect(_tabContents[i], style);
+                    EditorGUI.DrawRect(rect, new Color(0.24f, 0.37f, 0.58f, 0.5f));
+                    if (GUI.Button(rect, _tabContents[i], style))
+                    {
+                        _currentTab = tab;
+                    }
+                }
+                else
+                {
+                    if (GUILayout.Button(_tabContents[i], style))
+                    {
+                        _currentTab = tab;
+                    }
+                }
+            }
+
+            GUILayout.FlexibleSpace();
+
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.FlexibleSpace();
+            GUILayout.Label("v1.0.0", EditorStyles.miniLabel);
+            GUILayout.Space(10);
+            EditorGUILayout.EndHorizontal();
+            
+            EditorGUILayout.Space(5);
+            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawTabContent()
+        {
+            EditorGUILayout.BeginVertical();
+            _scrollPosition = EditorGUILayout.BeginScrollView(_scrollPosition);
+            EditorGUILayout.Space(10);
+
+            switch (_currentTab)
+            {
+                case Tab.AppInfo:
+                    DrawAppInfoTab();
+                    break;
+                case Tab.Achievements:
+                    DrawAchievementsTab();
+                    break;
+                case Tab.Stats:
+                    DrawStatsTab();
+                    break;
+                case Tab.Inventory:
+                    DrawInventoryTab();
+                    break;
+                case Tab.Leaderboards:
+                    DrawLeaderboardsTab();
+                    break;
+                case Tab.CloudSave:
+                    DrawCloudSaveTab();
+                    break;
+                case Tab.Workshop:
+                    DrawWorkshopTab();
+                    break;
+                case Tab.BuildDeploy:
+                    DrawBuildDeployTab();
+                    break;
+                case Tab.Settings:
+                    DrawSettingsTab();
+                    break;
+            }
+
+            EditorGUILayout.Space(10);
+            EditorGUILayout.EndScrollView();
+            EditorGUILayout.EndVertical();
+        }
+
+        #endregion
+
+        #region App Info Tab
+
+        private void DrawAppInfoTab()
+        {
+            GUILayout.Label("App Information", EditorStyles.boldLabel);
+            EditorGUILayout.Space(5);
+
+            if (_config == null)
+            {
+                DrawNoConfigWarning();
+                return;
+            }
+
+            _serializedConfig.Update();
+
+            EditorGUILayout.BeginVertical(_boxStyle);
+
+            EditorGUILayout.PropertyField(_serializedConfig.FindProperty("AppId"), new GUIContent("App ID"));
+            EditorGUILayout.PropertyField(_serializedConfig.FindProperty("GameName"), new GUIContent("Game Name"));
+
+            EditorGUILayout.Space(10);
+
+            GUILayout.Label("Quick Links", EditorStyles.boldLabel);
+            
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("Steamworks Partner", GUILayout.Height(25)))
+            {
+                Application.OpenURL($"https://partner.steamgames.com/apps/landing/{_config.AppId}");
+            }
+            if (GUILayout.Button("Store Page", GUILayout.Height(25)))
+            {
+                Application.OpenURL($"https://store.steampowered.com/app/{_config.AppId}");
+            }
+            EditorGUILayout.EndHorizontal();
+            
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("Achievements", GUILayout.Height(25)))
+            {
+                Application.OpenURL($"https://partner.steamgames.com/apps/achievements/{_config.AppId}");
+            }
+            if (GUILayout.Button("Stats", GUILayout.Height(25)))
+            {
+                Application.OpenURL($"https://partner.steamgames.com/apps/stats/{_config.AppId}");
+            }
+            if (GUILayout.Button("Leaderboards", GUILayout.Height(25)))
+            {
+                Application.OpenURL($"https://partner.steamgames.com/apps/leaderboards/{_config.AppId}");
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(10);
+            DrawSteamStatus();
+
+            _serializedConfig.ApplyModifiedProperties();
+        }
+
+        private void DrawSteamStatus()
+        {
+            EditorGUILayout.BeginVertical(_boxStyle);
+            
+            GUILayout.Label("Steam Status", EditorStyles.boldLabel);
+            EditorGUILayout.Space(5);
+
+            if (Application.isPlaying)
+            {
+                if (SteamCore.HasInstance && SteamCore.Instance.IsInitialized)
+                {
+                    EditorGUILayout.HelpBox(
+                        $"Connected\n" +
+                        $"User: {SteamCore.Instance.DisplayName}\n" +
+                        $"SteamID: {SteamCore.Instance.SteamIdString}",
+                        MessageType.Info
+                    );
+
+                    EditorGUILayout.Space(5);
+                    EditorGUILayout.BeginHorizontal();
+                    
+#if !DISABLESTEAMWORKS
+                    if (GUILayout.Button("Open Overlay", GUILayout.Height(25)))
+                    {
+                        SteamFriends.ActivateGameOverlay("Friends");
+                    }
+                    if (GUILayout.Button("Open Store", GUILayout.Height(25)))
+                    {
+                        SteamFriends.ActivateGameOverlayToStore(
+                            new AppId_t(_config.AppId), 
+                            EOverlayToStoreFlag.k_EOverlayToStoreFlag_None
+                        );
+                    }
+#else
+                    EditorGUILayout.HelpBox("Steamworks disabled", MessageType.Warning);
+#endif
+                    
+                    EditorGUILayout.EndHorizontal();
+                }
+                else
+                {
+                    EditorGUILayout.HelpBox("Not Connected", MessageType.Warning);
+                    
+                    if (GUILayout.Button("Initialize Steam", GUILayout.Height(25)))
+                    {
+                        SteamCore.Instance.Initialize();
+                    }
+                }
+            }
+            else
+            {
+                EditorGUILayout.HelpBox("Enter Play Mode to see Steam status.", MessageType.Info);
+                
+                EditorGUILayout.Space(5);
+                if (GUILayout.Button("Enter Play Mode", GUILayout.Height(30)))
+                {
+                    EditorApplication.isPlaying = true;
+                }
+            }
+
+            EditorGUILayout.EndVertical();
+        }
+
+        #endregion
+
+        #region Other Tabs (Placeholder)
+
+        private void DrawAchievementsTab()
+        {
+            GUILayout.Label("Achievements", EditorStyles.boldLabel);
+            EditorGUILayout.Space(5);
+            
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.HelpBox(
+                "Achievement management:\n" +
+                "• View achievement list\n" +
+                "• Unlock/lock in test mode\n" +
+                "• Track progress\n" +
+                "• Bulk reset",
+                MessageType.Info
+            );
+            
+            EditorGUILayout.Space(5);
+            GUILayout.Label("Coming soon...", EditorStyles.centeredGreyMiniLabel);
+            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawStatsTab()
+        {
+            GUILayout.Label("Stats", EditorStyles.boldLabel);
+            EditorGUILayout.Space(5);
+            
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.HelpBox(
+                "Stats management:\n" +
+                "• Read/write Int/Float stats\n" +
+                "• Stat definitions\n" +
+                "• Test values",
+                MessageType.Info
+            );
+            
+            EditorGUILayout.Space(5);
+            GUILayout.Label("Coming soon...", EditorStyles.centeredGreyMiniLabel);
+            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawInventoryTab()
+        {
+            GUILayout.Label("Inventory", EditorStyles.boldLabel);
+            EditorGUILayout.Space(5);
+            
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.HelpBox(
+                "Inventory management:\n" +
+                "• Item definitions\n" +
+                "• Grant/Revoke items\n" +
+                "• Promo items\n" +
+                "• Drop rates",
+                MessageType.Info
+            );
+            
+            EditorGUILayout.Space(5);
+            GUILayout.Label("Coming soon...", EditorStyles.centeredGreyMiniLabel);
+            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawLeaderboardsTab()
+        {
+            GUILayout.Label("Leaderboards", EditorStyles.boldLabel);
+            EditorGUILayout.Space(5);
+            
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.HelpBox(
+                "Leaderboard management:\n" +
+                "• Leaderboard list\n" +
+                "• Upload/download scores\n" +
+                "• View top 10",
+                MessageType.Info
+            );
+            
+            EditorGUILayout.Space(5);
+            GUILayout.Label("Coming soon...", EditorStyles.centeredGreyMiniLabel);
+            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawCloudSaveTab()
+        {
+            GUILayout.Label("Cloud Save", EditorStyles.boldLabel);
+            EditorGUILayout.Space(5);
+            
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.HelpBox(
+                "Cloud Save management:\n" +
+                "• Remote storage files\n" +
+                "• Upload/Download\n" +
+                "• Quota info",
+                MessageType.Info
+            );
+            
+            EditorGUILayout.Space(5);
+            GUILayout.Label("Coming soon...", EditorStyles.centeredGreyMiniLabel);
+            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawWorkshopTab()
+        {
+            GUILayout.Label("Workshop", EditorStyles.boldLabel);
+            EditorGUILayout.Space(5);
+            
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.HelpBox(
+                "Workshop (UGC) management:\n" +
+                "• Item upload\n" +
+                "• Subscription management\n" +
+                "• Content browser",
+                MessageType.Info
+            );
+            
+            EditorGUILayout.Space(5);
+            GUILayout.Label("Coming soon...", EditorStyles.centeredGreyMiniLabel);
+            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawBuildDeployTab()
+        {
+            GUILayout.Label("Build & Deploy", EditorStyles.boldLabel);
+            EditorGUILayout.Space(5);
+            
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.HelpBox(
+                "Build & Deploy:\n" +
+                "• SteamPipe integration\n" +
+                "• One-click build & upload\n" +
+                "• Depot management\n" +
+                "• Branch selection",
+                MessageType.Info
+            );
+            
+            EditorGUILayout.Space(5);
+            GUILayout.Label("Coming soon...", EditorStyles.centeredGreyMiniLabel);
+            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawSettingsTab()
+        {
+            GUILayout.Label("Settings", EditorStyles.boldLabel);
+            EditorGUILayout.Space(5);
+
+            if (_config == null)
+            {
+                DrawNoConfigWarning();
+                return;
+            }
+
+            _serializedConfig.Update();
+
+            // Initialization Settings
+            EditorGUILayout.BeginVertical(_boxStyle);
+            GUILayout.Label("Initialization", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(_serializedConfig.FindProperty("AutoInitialize"));
+            EditorGUILayout.PropertyField(_serializedConfig.FindProperty("AllowWithoutSteam"));
+            EditorGUILayout.PropertyField(_serializedConfig.FindProperty("CheckRestartApp"));
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(5);
+
+            // Debug Settings
+            EditorGUILayout.BeginVertical(_boxStyle);
+            GUILayout.Label("Debug", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(_serializedConfig.FindProperty("EnableDebugLogs"));
+            EditorGUILayout.PropertyField(_serializedConfig.FindProperty("TestMode"));
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(5);
+
+            // Service Settings
+            EditorGUILayout.BeginVertical(_boxStyle);
+            GUILayout.Label("Services", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(_serializedConfig.FindProperty("EnableAchievements"));
+            EditorGUILayout.PropertyField(_serializedConfig.FindProperty("EnableStats"));
+            EditorGUILayout.PropertyField(_serializedConfig.FindProperty("EnableInventory"));
+            EditorGUILayout.PropertyField(_serializedConfig.FindProperty("EnableLeaderboards"));
+            EditorGUILayout.PropertyField(_serializedConfig.FindProperty("EnableCloudSave"));
+            EditorGUILayout.PropertyField(_serializedConfig.FindProperty("EnableWorkshop"));
+            EditorGUILayout.EndVertical();
+
+            _serializedConfig.ApplyModifiedProperties();
+
+            EditorGUILayout.Space(10);
+
+            // Config Actions
+            EditorGUILayout.BeginVertical(_boxStyle);
+            GUILayout.Label("Config Actions", EditorStyles.boldLabel);
+            
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("Select Config", GUILayout.Height(25)))
+            {
+                Selection.activeObject = _config;
+                EditorGUIUtility.PingObject(_config);
+            }
+            if (GUILayout.Button("Reset to Defaults", GUILayout.Height(25)))
+            {
+                if (EditorUtility.DisplayDialog("Reset Config", 
+                    "Are you sure you want to reset all settings to defaults?", 
+                    "Yes", "Cancel"))
+                {
+                    ResetConfigToDefaults();
+                }
+            }
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+        }
+
+        private void ResetConfigToDefaults()
+        {
+            Undo.RecordObject(_config, "Reset Steam Config");
+            _config.AppId = 480;
+            _config.GameName = "My Game";
+            _config.AutoInitialize = true;
+            _config.AllowWithoutSteam = true;
+            _config.CheckRestartApp = true;
+            _config.EnableDebugLogs = true;
+            _config.TestMode = false;
+            _config.EnableAchievements = true;
+            _config.EnableStats = true;
+            _config.EnableInventory = false;
+            _config.EnableLeaderboards = false;
+            _config.EnableCloudSave = false;
+            _config.EnableWorkshop = false;
+            EditorUtility.SetDirty(_config);
+        }
+
+        #endregion
+
+        #region Helpers
+
+        private void DrawNoConfigWarning()
+        {
+            EditorGUILayout.BeginVertical(_boxStyle);
+            
+            EditorGUILayout.HelpBox(
+                "SteamConfig not found!\n\n" +
+                "Please create a SteamConfig in the Resources folder:\n" +
+                "Right Click > Create > Steam Toolkit > Config",
+                MessageType.Error
+            );
+
+            EditorGUILayout.Space(10);
+
+            if (GUILayout.Button("Create SteamConfig", GUILayout.Height(30)))
+            {
+                CreateConfig();
+            }
+            
+            EditorGUILayout.EndVertical();
+        }
+
+        private void CreateConfig()
+        {
+            if (!AssetDatabase.IsValidFolder("Assets/Resources"))
+            {
+                AssetDatabase.CreateFolder("Assets", "Resources");
+            }
+
+            var config = CreateInstance<SteamConfig>();
+            AssetDatabase.CreateAsset(config, "Assets/Resources/SteamConfig.asset");
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            _config = config;
+            _serializedConfig = new SerializedObject(_config);
+
+            EditorUtility.DisplayDialog("Success", "SteamConfig created!\n\nAssets/Resources/SteamConfig.asset", "OK");
+        }
+
+        #endregion
+    }
+}

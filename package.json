@@ -1,0 +1,25 @@
+﻿{
+  "name": "com.steamtoolkit.unity",
+  "version": "1.0.0",
+  "displayName": "Steam Toolkit",
+  "description": "Steam Management System for Unity. Need Steamworks.NET.",
+  "unity": "2021.3",
+  "unityRelease": "0f1",
+  "documentationUrl": "https://github.com/faikalbayrak/steam-toolkit",
+  "changelogUrl": "https://github.com/faikalbayrak/steam-toolkit/blob/main/CHANGELOG.md",
+  "licensesUrl": "https://github.com/faikalbayrak/steam-toolkit/blob/main/LICENSE",
+  "keywords": [
+    "steam",
+    "steamworks",
+    "achievement",
+    "leaderboard",
+    "inventory",
+    "multiplayer"
+  ],
+  "author": {
+    "name": "Faik ALBAYRAK",
+    "email": "info@faikalbayrak.com",
+    "url": "https://faikalbayrak.com"
+  },
+  "dependencies": {}
+}
