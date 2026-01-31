@@ -54,7 +54,7 @@ namespace SteamToolkit.Editor
         public static void ShowWindow()
         {
             var window = GetWindow<SteamToolkitWindow>();
-            window.titleContent = new GUIContent("Steam Toolkit", EditorGUIUtility.IconContent("d_BuildSettings.Steam").image);
+            window.titleContent = new GUIContent("Steam Toolkit", EditorGUIUtility.IconContent("d_CloudConnect").image);
             window.minSize = new Vector2(550, 450);
             window.Show();
         }
