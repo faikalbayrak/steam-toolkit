@@ -264,10 +264,11 @@ namespace SteamToolkit
                 return new int[0];
             }
 
-            if (SteamInventory.GetItemDefinitionIDs(null, out uint count))
+            uint count = 0;
+            if (SteamInventory.GetItemDefinitionIDs(null, ref count))
             {
                 var ids = new SteamItemDef_t[count];
-                if (SteamInventory.GetItemDefinitionIDs(ids, out count))
+                if (SteamInventory.GetItemDefinitionIDs(ids, ref count))
                 {
                     var result = new int[count];
                     for (int i = 0; i < count; i++)
