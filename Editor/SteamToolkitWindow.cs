@@ -2154,20 +2154,284 @@ namespace SteamToolkit.Editor
         {
             GUILayout.Label("Cloud Save", EditorStyles.boldLabel);
             EditorGUILayout.Space(5);
-            
-            EditorGUILayout.BeginVertical(_boxStyle);
-            EditorGUILayout.HelpBox(
-                "Cloud Save management:\n" +
-                "• Remote storage files\n" +
-                "• Upload/Download\n" +
-                "• Quota info",
-                MessageType.Info
-            );
-            
+
+            if (!Application.isPlaying)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox(
+                    "Enter Play Mode to manage cloud saves.\n\n" +
+                    "Features:\n" +
+                    "• View all cloud files\n" +
+                    "• Read/Write files\n" +
+                    "• Delete files\n" +
+                    "• View quota usage",
+                    MessageType.Info
+                );
+                
+                EditorGUILayout.Space(5);
+                
+                EditorGUILayout.BeginHorizontal();
+                if (GUILayout.Button("Enter Play Mode", GUILayout.Height(25)))
+                {
+                    EditorApplication.isPlaying = true;
+                }
+                if (GUILayout.Button("Open Steamworks", GUILayout.Height(25)))
+                {
+                    if (_config != null)
+                    {
+                        Application.OpenURL($"https://partner.steamgames.com/apps/cloud/{_config.AppId}");
+                    }
+                }
+                EditorGUILayout.EndHorizontal();
+                
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            DrawPlayModeCloud();
+        }
+
+        #region Cloud Play Mode
+
+        private List<CloudFileInfo> _cloudFiles = new List<CloudFileInfo>();
+        private CloudQuotaInfo _cloudQuota;
+        private Vector2 _cloudScrollPosition;
+        private bool _cloudLoading;
+        private string _cloudStatus = "";
+
+        // Write file
+        private string _cloudWriteFileName = "test.txt";
+        private string _cloudWriteContent = "Hello, Steam Cloud!";
+        private bool _cloudShowWritePanel;
+
+        // Read file
+        private string _cloudReadContent = "";
+        private string _cloudSelectedFile = "";
+
+        private void DrawPlayModeCloud()
+        {
+            if (!SteamCore.HasInstance || !SteamCore.Instance.IsInitialized)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Steam not initialized.", MessageType.Warning);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+#if !DISABLESTEAMWORKS
+            if (SteamCore.Instance.Cloud == null)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Cloud service not enabled. Enable it in Settings.", MessageType.Warning);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            // Cloud status
+            if (!SteamCore.Instance.Cloud.IsCloudEnabled)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Steam Cloud is disabled for this user or app.\n\nCheck Steam settings or app configuration.", MessageType.Warning);
+                EditorGUILayout.EndVertical();
+            }
+
+            // Quota info
+            DrawCloudQuota();
+
             EditorGUILayout.Space(5);
-            GUILayout.Label("Coming soon...", EditorStyles.centeredGreyMiniLabel);
+
+            // Toolbar
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.BeginHorizontal();
+
+            if (GUILayout.Button("Refresh", GUILayout.Width(80)))
+            {
+                RefreshCloudFiles();
+            }
+
+            _cloudShowWritePanel = GUILayout.Toggle(_cloudShowWritePanel, "Write File", EditorStyles.toolbarButton, GUILayout.Width(80));
+
+            GUILayout.FlexibleSpace();
+            GUILayout.Label($"{_cloudFiles.Count} Files", EditorStyles.boldLabel);
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+
+            // Write panel
+            if (_cloudShowWritePanel)
+            {
+                DrawCloudWritePanel();
+            }
+
+            // Status
+            if (!string.IsNullOrEmpty(_cloudStatus))
+            {
+                EditorGUILayout.HelpBox(_cloudStatus, MessageType.Info);
+            }
+
+            EditorGUILayout.Space(5);
+
+            // File list
+            if (_cloudFiles.Count == 0 && !_cloudLoading)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("No files in cloud storage.\nClick 'Refresh' to load or use 'Write File' to create one.", MessageType.Info);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            _cloudScrollPosition = EditorGUILayout.BeginScrollView(_cloudScrollPosition);
+
+            foreach (var file in _cloudFiles)
+            {
+                DrawCloudFile(file);
+            }
+
+            EditorGUILayout.EndScrollView();
+
+            // Read content panel
+            if (!string.IsNullOrEmpty(_cloudSelectedFile) && !string.IsNullOrEmpty(_cloudReadContent))
+            {
+                DrawCloudReadPanel();
+            }
+#endif
+        }
+
+#if !DISABLESTEAMWORKS
+        private void DrawCloudQuota()
+        {
+            if (_cloudQuota == null)
+            {
+                _cloudQuota = SteamCore.Instance.Cloud.GetQuota();
+            }
+
+            EditorGUILayout.BeginVertical(_boxStyle);
+            
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label("Cloud Storage", EditorStyles.boldLabel);
+            GUILayout.FlexibleSpace();
+            GUILayout.Label($"{_cloudQuota.UsedFormatted} / {_cloudQuota.TotalFormatted}", EditorStyles.miniLabel);
+            EditorGUILayout.EndHorizontal();
+
+            // Progress bar
+            var rect = GUILayoutUtility.GetRect(GUIContent.none, GUIStyle.none, GUILayout.Height(8));
+            EditorGUI.ProgressBar(rect, _cloudQuota.UsedPercent / 100f, "");
+
             EditorGUILayout.EndVertical();
         }
+
+        private void DrawCloudWritePanel()
+        {
+            EditorGUILayout.BeginVertical(_boxStyle);
+            GUILayout.Label("Write File", EditorStyles.boldLabel);
+
+            _cloudWriteFileName = EditorGUILayout.TextField("File Name", _cloudWriteFileName);
+            
+            GUILayout.Label("Content:");
+            _cloudWriteContent = EditorGUILayout.TextArea(_cloudWriteContent, GUILayout.Height(60));
+
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("Write", GUILayout.Width(80)))
+            {
+                if (SteamCore.Instance.Cloud.WriteString(_cloudWriteFileName, _cloudWriteContent))
+                {
+                    _cloudStatus = $"File written: {_cloudWriteFileName}";
+                    RefreshCloudFiles();
+                }
+                else
+                {
+                    _cloudStatus = "Failed to write file.";
+                }
+            }
+
+            GUILayout.FlexibleSpace();
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawCloudReadPanel()
+        {
+            EditorGUILayout.Space(5);
+            EditorGUILayout.BeginVertical(_boxStyle);
+            
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label($"Content: {_cloudSelectedFile}", EditorStyles.boldLabel);
+            if (GUILayout.Button("×", GUILayout.Width(20)))
+            {
+                _cloudSelectedFile = "";
+                _cloudReadContent = "";
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.TextArea(_cloudReadContent, GUILayout.Height(100));
+
+            EditorGUILayout.EndVertical();
+        }
+
+        private void RefreshCloudFiles()
+        {
+            _cloudFiles = SteamCore.Instance.Cloud.GetAllFiles();
+            _cloudQuota = SteamCore.Instance.Cloud.GetQuota();
+            Repaint();
+        }
+
+        private void DrawCloudFile(CloudFileInfo file)
+        {
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.BeginHorizontal();
+
+            // File icon
+            GUILayout.Label(EditorGUIUtility.IconContent("d_TextAsset Icon"), GUILayout.Width(20), GUILayout.Height(20));
+
+            // Info
+            EditorGUILayout.BeginVertical();
+            GUILayout.Label(file.FileName, EditorStyles.boldLabel);
+            
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label($"Size: {file.SizeFormatted}", EditorStyles.miniLabel);
+            GUILayout.Label($"Modified: {file.LastModified:g}", EditorStyles.miniLabel);
+            EditorGUILayout.EndHorizontal();
+            
+            EditorGUILayout.EndVertical();
+
+            // Buttons
+            if (GUILayout.Button("Read", GUILayout.Width(50), GUILayout.Height(30)))
+            {
+                _cloudSelectedFile = file.FileName;
+                _cloudReadContent = SteamCore.Instance.Cloud.ReadString(file.FileName) ?? "(binary or empty)";
+                _cloudStatus = $"Read: {file.FileName}";
+            }
+
+            if (GUILayout.Button("Delete", GUILayout.Width(50), GUILayout.Height(30)))
+            {
+                if (EditorUtility.DisplayDialog("Delete File", 
+                    $"Are you sure you want to delete '{file.FileName}'?\n\nThis cannot be undone.", 
+                    "Delete", "Cancel"))
+                {
+                    if (SteamCore.Instance.Cloud.DeleteFile(file.FileName))
+                    {
+                        _cloudStatus = $"Deleted: {file.FileName}";
+                        if (_cloudSelectedFile == file.FileName)
+                        {
+                            _cloudSelectedFile = "";
+                            _cloudReadContent = "";
+                        }
+                        RefreshCloudFiles();
+                    }
+                    else
+                    {
+                        _cloudStatus = "Failed to delete file.";
+                    }
+                }
+            }
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+        }
+#endif
+
+        #endregion
 
         private void DrawWorkshopTab()
         {

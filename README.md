@@ -10,7 +10,7 @@ Comprehensive Steam integration toolkit for Unity.
 - **Stats** - Get/Set player stats
 - **Leaderboards** - Upload/download scores, rankings
 - **Inventory** - Item management, grants, consumption
-- **Cloud Save** - Remote storage (coming soon)
+- **Cloud Save** - Remote storage for save files
 - **Workshop** - UGC support (coming soon)
 - **Build/Deploy** - SteamPipe integration (coming soon)
 
@@ -165,6 +165,37 @@ foreach (var def in definitions)
 }
 ```
 
+### Cloud Save
+
+```csharp
+// Write string to cloud
+SteamCore.Instance.Cloud.WriteString("save.txt", "Hello Cloud!");
+
+// Write JSON object
+var saveData = new MySaveData { level = 5, score = 1000 };
+SteamCore.Instance.Cloud.WriteJson("save.json", saveData);
+
+// Read string from cloud
+string content = SteamCore.Instance.Cloud.ReadString("save.txt");
+
+// Read JSON object
+var loaded = SteamCore.Instance.Cloud.ReadJson<MySaveData>("save.json");
+
+// Get all cloud files
+var files = SteamCore.Instance.Cloud.GetAllFiles();
+foreach (var file in files)
+{
+    Debug.Log($"{file.FileName}: {file.SizeFormatted}");
+}
+
+// Get quota info
+var quota = SteamCore.Instance.Cloud.GetQuota();
+Debug.Log($"Used: {quota.UsedFormatted} / {quota.TotalFormatted}");
+
+// Delete file
+SteamCore.Instance.Cloud.DeleteFile("old_save.txt");
+```
+
 ## Configuration
 
 ### Publisher API Key
@@ -213,7 +244,8 @@ SteamToolkit/
         ├── SteamAchievementService.cs
         ├── SteamStatsService.cs
         ├── SteamLeaderboardService.cs
-        └── SteamInventoryService.cs
+        ├── SteamInventoryService.cs
+        └── SteamCloudService.cs
 ```
 
 ## FAQ

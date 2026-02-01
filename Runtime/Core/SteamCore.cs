@@ -77,6 +77,7 @@ namespace SteamToolkit
         public SteamStatsService Stats { get; private set; }
         public SteamLeaderboardService Leaderboards { get; private set; }
         public SteamInventoryService Inventory { get; private set; }
+        public SteamCloudService Cloud { get; private set; }
 #endif
 
         #endregion
@@ -265,6 +266,13 @@ namespace SteamToolkit
                 Inventory = new SteamInventoryService();
                 Inventory.Initialize();
             }
+
+            // Cloud service
+            if (_config.EnableCloudSave)
+            {
+                Cloud = new SteamCloudService();
+                Cloud.Initialize();
+            }
 #endif
         }
 
@@ -284,6 +292,7 @@ namespace SteamToolkit
             Stats?.Dispose();
             Leaderboards?.Dispose();
             Inventory?.Dispose();
+            Cloud?.Dispose();
 
             // Shutdown Steam
             SteamAPI.Shutdown();
