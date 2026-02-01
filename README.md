@@ -11,7 +11,7 @@ Comprehensive Steam integration toolkit for Unity.
 - **Leaderboards** - Upload/download scores, rankings
 - **Inventory** - Item management, grants, consumption
 - **Cloud Save** - Remote storage for save files
-- **Workshop** - UGC support (coming soon)
+- **Workshop** - UGC creation, subscription, queries
 - **Build/Deploy** - SteamPipe integration (coming soon)
 
 ## Requirements
@@ -196,6 +196,49 @@ Debug.Log($"Used: {quota.UsedFormatted} / {quota.TotalFormatted}");
 SteamCore.Instance.Cloud.DeleteFile("old_save.txt");
 ```
 
+### Workshop
+
+```csharp
+// Query subscribed items
+SteamCore.Instance.Workshop.QuerySubscribedItems(items =>
+{
+    foreach (var item in items)
+    {
+        Debug.Log($"{item.Title} (ID: {item.ItemId})");
+    }
+});
+
+// Subscribe to an item
+SteamCore.Instance.Workshop.Subscribe(itemId, success =>
+{
+    Debug.Log($"Subscribed: {success}");
+});
+
+// Create and upload a new item
+SteamCore.Instance.Workshop.CreateItem(itemId =>
+{
+    SteamCore.Instance.Workshop.BeginItemUpdate(itemId)
+        .SetTitle("My Awesome Mod")
+        .SetDescription("This mod adds cool stuff!")
+        .SetContent("/path/to/content/folder")
+        .SetPreviewImage("/path/to/preview.png")
+        .SetVisibility(WorkshopVisibility.Public)
+        .SetTags("mod", "gameplay")
+        .Submit("Initial release", (id, needsAgreement) =>
+        {
+            Debug.Log($"Uploaded! ID: {id}");
+        });
+});
+
+// Get item state
+var state = SteamCore.Instance.Workshop.GetItemState(itemId);
+Debug.Log($"Installed: {state.IsInstalled}, Needs Update: {state.NeedsUpdate}");
+
+// Get installed item path
+var info = SteamCore.Instance.Workshop.GetInstalledItemInfo(itemId);
+Debug.Log($"Path: {info.FolderPath}");
+```
+
 ## Configuration
 
 ### Publisher API Key
@@ -245,7 +288,8 @@ SteamToolkit/
         ├── SteamStatsService.cs
         ├── SteamLeaderboardService.cs
         ├── SteamInventoryService.cs
-        └── SteamCloudService.cs
+        ├── SteamCloudService.cs
+        └── SteamWorkshopService.cs
 ```
 
 ## FAQ

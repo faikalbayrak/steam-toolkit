@@ -78,6 +78,7 @@ namespace SteamToolkit
         public SteamLeaderboardService Leaderboards { get; private set; }
         public SteamInventoryService Inventory { get; private set; }
         public SteamCloudService Cloud { get; private set; }
+        public SteamWorkshopService Workshop { get; private set; }
 #endif
 
         #endregion
@@ -273,6 +274,13 @@ namespace SteamToolkit
                 Cloud = new SteamCloudService();
                 Cloud.Initialize();
             }
+
+            // Workshop service
+            if (_config.EnableWorkshop)
+            {
+                Workshop = new SteamWorkshopService();
+                Workshop.Initialize();
+            }
 #endif
         }
 
@@ -293,6 +301,7 @@ namespace SteamToolkit
             Leaderboards?.Dispose();
             Inventory?.Dispose();
             Cloud?.Dispose();
+            Workshop?.Dispose();
 
             // Shutdown Steam
             SteamAPI.Shutdown();

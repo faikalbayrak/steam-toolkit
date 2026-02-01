@@ -2437,20 +2437,358 @@ namespace SteamToolkit.Editor
         {
             GUILayout.Label("Workshop", EditorStyles.boldLabel);
             EditorGUILayout.Space(5);
-            
+
+            if (!Application.isPlaying)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox(
+                    "Enter Play Mode to manage Workshop items.\n\n" +
+                    "Features:\n" +
+                    "• View subscribed items\n" +
+                    "• View your published items\n" +
+                    "• Create & update items\n" +
+                    "• Subscribe/Unsubscribe",
+                    MessageType.Info
+                );
+                
+                EditorGUILayout.Space(5);
+                
+                EditorGUILayout.BeginHorizontal();
+                if (GUILayout.Button("Enter Play Mode", GUILayout.Height(25)))
+                {
+                    EditorApplication.isPlaying = true;
+                }
+                if (GUILayout.Button("Open Workshop", GUILayout.Height(25)))
+                {
+                    if (_config != null)
+                    {
+                        Application.OpenURL($"https://steamcommunity.com/app/{_config.AppId}/workshop/");
+                    }
+                }
+                EditorGUILayout.EndHorizontal();
+                
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            DrawPlayModeWorkshop();
+        }
+
+        #region Workshop Play Mode
+
+        private List<WorkshopItem> _workshopItems = new List<WorkshopItem>();
+        private Vector2 _workshopScrollPosition;
+        private bool _workshopLoading;
+        private string _workshopStatus = "";
+        private int _workshopViewMode = 0; // 0 = Subscribed, 1 = Published, 2 = Popular
+
+        // Create item
+        private bool _workshopShowCreatePanel;
+        private string _workshopNewTitle = "My Workshop Item";
+        private string _workshopNewDescription = "Description of my item...";
+        private string _workshopNewContentPath = "";
+        private string _workshopNewPreviewPath = "";
+        private int _workshopNewVisibility = 0; // 0=Public, 1=Friends, 2=Private
+
+        private void DrawPlayModeWorkshop()
+        {
+            if (!SteamCore.HasInstance || !SteamCore.Instance.IsInitialized)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Steam not initialized.", MessageType.Warning);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+#if !DISABLESTEAMWORKS
+            if (SteamCore.Instance.Workshop == null)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Workshop service not enabled. Enable it in Settings.", MessageType.Warning);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            // View mode tabs
             EditorGUILayout.BeginVertical(_boxStyle);
-            EditorGUILayout.HelpBox(
-                "Workshop (UGC) management:\n" +
-                "• Item upload\n" +
-                "• Subscription management\n" +
-                "• Content browser",
-                MessageType.Info
-            );
+            EditorGUILayout.BeginHorizontal();
             
+            if (GUILayout.Toggle(_workshopViewMode == 0, "Subscribed", EditorStyles.toolbarButton))
+            {
+                if (_workshopViewMode != 0) { _workshopViewMode = 0; _workshopItems.Clear(); }
+            }
+            if (GUILayout.Toggle(_workshopViewMode == 1, "My Items", EditorStyles.toolbarButton))
+            {
+                if (_workshopViewMode != 1) { _workshopViewMode = 1; _workshopItems.Clear(); }
+            }
+            if (GUILayout.Toggle(_workshopViewMode == 2, "Popular", EditorStyles.toolbarButton))
+            {
+                if (_workshopViewMode != 2) { _workshopViewMode = 2; _workshopItems.Clear(); }
+            }
+            
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+
             EditorGUILayout.Space(5);
-            GUILayout.Label("Coming soon...", EditorStyles.centeredGreyMiniLabel);
+
+            // Toolbar
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.BeginHorizontal();
+
+            GUI.enabled = !_workshopLoading;
+            if (GUILayout.Button("Refresh", GUILayout.Width(80)))
+            {
+                RefreshWorkshopItems();
+            }
+
+            if (_workshopViewMode == 1) // My Items
+            {
+                _workshopShowCreatePanel = GUILayout.Toggle(_workshopShowCreatePanel, "Create New", EditorStyles.toolbarButton, GUILayout.Width(80));
+            }
+            GUI.enabled = true;
+
+            GUILayout.FlexibleSpace();
+
+            var subscribedCount = SteamCore.Instance.Workshop.GetSubscribedItemCount();
+            GUILayout.Label($"Subscribed: {subscribedCount}", EditorStyles.miniLabel);
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+
+            // Create panel
+            if (_workshopShowCreatePanel && _workshopViewMode == 1)
+            {
+                DrawWorkshopCreatePanel();
+            }
+
+            // Status
+            if (!string.IsNullOrEmpty(_workshopStatus))
+            {
+                EditorGUILayout.HelpBox(_workshopStatus, _workshopLoading ? MessageType.Info : MessageType.None);
+            }
+
+            EditorGUILayout.Space(5);
+
+            // Items list
+            if (_workshopItems.Count == 0 && !_workshopLoading)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                string hint = _workshopViewMode switch
+                {
+                    0 => "No subscribed items.\nClick 'Refresh' to load.",
+                    1 => "No published items.\nCreate a new item to get started.",
+                    2 => "No items found.\nClick 'Refresh' to load popular items.",
+                    _ => "Click 'Refresh' to load items."
+                };
+                EditorGUILayout.HelpBox(hint, MessageType.Info);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            _workshopScrollPosition = EditorGUILayout.BeginScrollView(_workshopScrollPosition);
+
+            foreach (var item in _workshopItems)
+            {
+                DrawWorkshopItem(item);
+            }
+
+            EditorGUILayout.EndScrollView();
+#endif
+        }
+
+#if !DISABLESTEAMWORKS
+        private void DrawWorkshopCreatePanel()
+        {
+            EditorGUILayout.BeginVertical(_boxStyle);
+            GUILayout.Label("Create Workshop Item", EditorStyles.boldLabel);
+
+            _workshopNewTitle = EditorGUILayout.TextField("Title", _workshopNewTitle);
+            
+            GUILayout.Label("Description:");
+            _workshopNewDescription = EditorGUILayout.TextArea(_workshopNewDescription, GUILayout.Height(60));
+
+            EditorGUILayout.BeginHorizontal();
+            _workshopNewContentPath = EditorGUILayout.TextField("Content Folder", _workshopNewContentPath);
+            if (GUILayout.Button("...", GUILayout.Width(30)))
+            {
+                var path = EditorUtility.OpenFolderPanel("Select Content Folder", Application.dataPath, "");
+                if (!string.IsNullOrEmpty(path)) _workshopNewContentPath = path;
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.BeginHorizontal();
+            _workshopNewPreviewPath = EditorGUILayout.TextField("Preview Image", _workshopNewPreviewPath);
+            if (GUILayout.Button("...", GUILayout.Width(30)))
+            {
+                var path = EditorUtility.OpenFilePanel("Select Preview Image", Application.dataPath, "png,jpg,jpeg");
+                if (!string.IsNullOrEmpty(path)) _workshopNewPreviewPath = path;
+            }
+            EditorGUILayout.EndHorizontal();
+
+            _workshopNewVisibility = EditorGUILayout.Popup("Visibility", _workshopNewVisibility, new[] { "Public", "Friends Only", "Private" });
+
+            EditorGUILayout.Space(5);
+
+            EditorGUILayout.BeginHorizontal();
+            GUI.enabled = !string.IsNullOrEmpty(_workshopNewTitle) && !string.IsNullOrEmpty(_workshopNewContentPath);
+            if (GUILayout.Button("Create & Upload", GUILayout.Height(25)))
+            {
+                CreateWorkshopItem();
+            }
+            GUI.enabled = true;
+            EditorGUILayout.EndHorizontal();
+
             EditorGUILayout.EndVertical();
         }
+
+        private void CreateWorkshopItem()
+        {
+            _workshopLoading = true;
+            _workshopStatus = "Creating item...";
+
+            SteamCore.Instance.Workshop.CreateItem(itemId =>
+            {
+                _workshopStatus = $"Item created: {itemId}. Uploading content...";
+                Repaint();
+
+                var visibility = (WorkshopVisibility)_workshopNewVisibility;
+
+                SteamCore.Instance.Workshop.BeginItemUpdate(itemId)
+                    .SetTitle(_workshopNewTitle)
+                    .SetDescription(_workshopNewDescription)
+                    .SetContent(_workshopNewContentPath)
+                    .SetVisibility(visibility)
+                    .SetPreviewImage(string.IsNullOrEmpty(_workshopNewPreviewPath) ? null : _workshopNewPreviewPath)
+                    .Submit("Initial upload", (id, needsAgreement) =>
+                    {
+                        _workshopLoading = false;
+                        
+                        if (needsAgreement)
+                        {
+                            _workshopStatus = $"Item uploaded! Please accept the Workshop agreement.";
+                            Application.OpenURL($"https://steamcommunity.com/sharedfiles/workshoplegalagreement");
+                        }
+                        else
+                        {
+                            _workshopStatus = $"Item uploaded successfully! ID: {id}";
+                        }
+
+                        _workshopShowCreatePanel = false;
+                        RefreshWorkshopItems();
+                    });
+            });
+        }
+
+        private void RefreshWorkshopItems()
+        {
+            _workshopLoading = true;
+            _workshopStatus = "Loading...";
+            _workshopItems.Clear();
+            Repaint();
+
+            Action<List<WorkshopItem>> callback = items =>
+            {
+                _workshopItems = items;
+                _workshopLoading = false;
+                _workshopStatus = $"Loaded {items.Count} items.";
+                Repaint();
+            };
+
+            switch (_workshopViewMode)
+            {
+                case 0:
+                    SteamCore.Instance.Workshop.QuerySubscribedItems(callback);
+                    break;
+                case 1:
+                    SteamCore.Instance.Workshop.QueryPublishedItems(callback);
+                    break;
+                case 2:
+                    SteamCore.Instance.Workshop.QueryPopularItems(callback);
+                    break;
+            }
+        }
+
+        private void DrawWorkshopItem(WorkshopItem item)
+        {
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.BeginHorizontal();
+
+            // Preview placeholder
+            var previewRect = GUILayoutUtility.GetRect(64, 64, GUILayout.Width(64), GUILayout.Height(64));
+            EditorGUI.DrawRect(previewRect, new Color(0.2f, 0.2f, 0.2f));
+
+            GUILayout.Space(10);
+
+            // Info
+            EditorGUILayout.BeginVertical();
+            
+            GUILayout.Label(item.Title, EditorStyles.boldLabel);
+            
+            if (!string.IsNullOrEmpty(item.Description))
+            {
+                var shortDesc = item.Description.Length > 100 
+                    ? item.Description.Substring(0, 100) + "..." 
+                    : item.Description;
+                GUILayout.Label(shortDesc, EditorStyles.wordWrappedMiniLabel);
+            }
+            
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label($"ID: {item.ItemId}", EditorStyles.miniLabel);
+            GUILayout.Label($"Size: {item.FileSizeFormatted}", EditorStyles.miniLabel);
+            GUILayout.Label($"👍 {item.VotesUp} 👎 {item.VotesDown}", EditorStyles.miniLabel);
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label($"Updated: {item.UpdatedTime:g}", EditorStyles.miniLabel);
+            if (!string.IsNullOrEmpty(item.Tags))
+            {
+                GUILayout.Label($"Tags: {item.Tags}", EditorStyles.miniLabel);
+            }
+            EditorGUILayout.EndHorizontal();
+            
+            EditorGUILayout.EndVertical();
+
+            // Buttons
+            EditorGUILayout.BeginVertical(GUILayout.Width(80));
+
+            var state = SteamCore.Instance.Workshop.GetItemState(item.ItemId);
+
+            if (state.IsSubscribed)
+            {
+                if (GUILayout.Button("Unsub", GUILayout.Height(25)))
+                {
+                    SteamCore.Instance.Workshop.Unsubscribe(item.ItemId, success =>
+                    {
+                        _workshopStatus = success ? "Unsubscribed!" : "Failed to unsubscribe.";
+                        RefreshWorkshopItems();
+                    });
+                }
+            }
+            else
+            {
+                if (GUILayout.Button("Subscribe", GUILayout.Height(25)))
+                {
+                    SteamCore.Instance.Workshop.Subscribe(item.ItemId, success =>
+                    {
+                        _workshopStatus = success ? "Subscribed!" : "Failed to subscribe.";
+                        RefreshWorkshopItems();
+                    });
+                }
+            }
+
+            if (GUILayout.Button("Open", GUILayout.Height(25)))
+            {
+                Application.OpenURL($"https://steamcommunity.com/sharedfiles/filedetails/?id={item.ItemId}");
+            }
+
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+        }
+#endif
+
+        #endregion
 
         private void DrawBuildDeployTab()
         {
