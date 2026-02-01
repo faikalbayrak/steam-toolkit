@@ -114,7 +114,8 @@ avatarImage.texture = myAvatar;
 ```csharp
 // Upload score (keeps best)
 SteamCore.Instance.Leaderboards.UploadScore("HighScores", 5000, ScoreUploadMethod.KeepBest, 
-    success => Debug.Log($"Upload: {success}"));
+    (score, changed) => Debug.Log($"Score: {score}, Changed: {changed}"),
+    error => Debug.LogError(error));
 
 // Download top 10
 SteamCore.Instance.Leaderboards.DownloadTopScores("HighScores", 10, entries =>

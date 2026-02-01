@@ -1496,12 +1496,18 @@ namespace SteamToolkit.Editor
             _leaderboardStatus = "Uploading score...";
             Repaint();
 
-            SteamCore.Instance.Leaderboards.UploadScore(_leaderboardName, _uploadScore, method, success =>
+            SteamCore.Instance.Leaderboards.UploadScore(_leaderboardName, _uploadScore, method, (score, changed) =>
             {
                 _leaderboardLoading = false;
-                _leaderboardStatus = success 
-                    ? $"Score {_uploadScore} uploaded successfully!" 
-                    : "Failed to upload score.";
+                _leaderboardStatus = changed 
+                    ? $"Score {score} uploaded successfully!" 
+                    : $"Score {score} not changed (existing score is better).";
+                Repaint();
+            },
+            error =>
+            {
+                _leaderboardLoading = false;
+                _leaderboardStatus = $"Error: {error}";
                 Repaint();
             });
         }
@@ -1518,6 +1524,12 @@ namespace SteamToolkit.Editor
                 _leaderboardLoading = false;
                 _leaderboardEntries = entries;
                 _leaderboardStatus = $"Downloaded {entries.Count} entries.";
+                Repaint();
+            },
+            error =>
+            {
+                _leaderboardLoading = false;
+                _leaderboardStatus = $"Error: {error}";
                 Repaint();
             });
         }
@@ -1536,6 +1548,12 @@ namespace SteamToolkit.Editor
                 _leaderboardEntries = entries;
                 _leaderboardStatus = $"Downloaded {entries.Count} entries.";
                 Repaint();
+            },
+            error =>
+            {
+                _leaderboardLoading = false;
+                _leaderboardStatus = $"Error: {error}";
+                Repaint();
             });
         }
 
@@ -1551,6 +1569,12 @@ namespace SteamToolkit.Editor
                 _leaderboardLoading = false;
                 _leaderboardEntries = entries;
                 _leaderboardStatus = $"Downloaded {entries.Count} friend entries.";
+                Repaint();
+            },
+            error =>
+            {
+                _leaderboardLoading = false;
+                _leaderboardStatus = $"Error: {error}";
                 Repaint();
             });
         }
