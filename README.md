@@ -12,7 +12,7 @@ Comprehensive Steam integration toolkit for Unity.
 - **Inventory** - Item management, grants, consumption
 - **Cloud Save** - Remote storage for save files
 - **Workshop** - UGC creation, subscription, queries
-- **Build/Deploy** - SteamPipe integration (coming soon)
+- **Build/Deploy** - SteamPipe integration, one-click upload
 
 ## Requirements
 
@@ -239,6 +239,37 @@ var info = SteamCore.Instance.Workshop.GetInstalledItemInfo(itemId);
 Debug.Log($"Path: {info.FolderPath}");
 ```
 
+### Build & Deploy
+
+Build & Deploy is configured through the Editor window (Steam Toolkit > Build & Deploy tab).
+
+**Setup:**
+1. Create a Build Config: `Create > Steam Toolkit > Build Config`
+2. Set SteamCMD path
+3. Initialize ContentBuilder folder
+4. Configure depots for each platform
+5. Enter Steam credentials
+
+**Usage via Editor:**
+1. Build your game normally (File > Build Settings)
+2. Copy build to ContentBuilder/content folder
+3. Click "Generate VDF" to create upload scripts
+4. Click "Upload to Steam" to run SteamCMD
+
+**Programmatic VDF Generation:**
+```csharp
+// In Editor scripts
+using SteamToolkit.Editor;
+
+// Generate VDF files
+var config = Resources.Load<SteamBuildConfig>("SteamBuildConfig");
+string description = SteamPipeBuilder.BuildDescription(config.DescriptionTemplate);
+SteamPipeBuilder.WriteVdfFiles(config, description, "default");
+
+// Copy build to ContentBuilder
+SteamPipeBuilder.CopyBuildToContent(config, config.Depots[0], "Build/Windows");
+```
+
 ## Configuration
 
 ### Publisher API Key
@@ -276,12 +307,15 @@ SteamToolkit/
 ├── Editor/
 │   ├── SteamToolkit.Editor.asmdef
 │   ├── SteamToolkitWindow.cs
-│   └── SteamWebAPI.cs
+│   ├── SteamWebAPI.cs
+│   ├── SteamPipeBuilder.cs
+│   └── EditorInputDialog.cs
 └── Runtime/
     ├── SteamToolkit.Runtime.asmdef
     ├── Core/
     │   ├── SteamConfig.cs
-    │   └── SteamCore.cs
+    │   ├── SteamCore.cs
+    │   └── SteamBuildConfig.cs
     └── Services/
         ├── SteamAuthService.cs
         ├── SteamAchievementService.cs

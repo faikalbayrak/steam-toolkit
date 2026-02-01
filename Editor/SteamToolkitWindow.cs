@@ -1,4 +1,5 @@
-﻿using System.Collections.Generic;
+﻿using System;
+using System.Collections.Generic;
 using UnityEngine;
 using UnityEngine.Networking;
 using UnityEditor;
@@ -2794,21 +2795,349 @@ namespace SteamToolkit.Editor
         {
             GUILayout.Label("Build & Deploy", EditorStyles.boldLabel);
             EditorGUILayout.Space(5);
-            
+
+            // Find or create build config
+            if (_buildConfig == null)
+            {
+                _buildConfig = Resources.Load<SteamBuildConfig>("SteamBuildConfig");
+            }
+
+            if (_buildConfig == null)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox(
+                    "No Build Config found!\n\n" +
+                    "Create a SteamBuildConfig asset to configure SteamPipe uploads.",
+                    MessageType.Warning
+                );
+
+                if (GUILayout.Button("Create Build Config", GUILayout.Height(30)))
+                {
+                    CreateBuildConfig();
+                }
+
+                EditorGUILayout.Space(5);
+
+                EditorGUILayout.HelpBox(
+                    "Build & Deploy features:\n" +
+                    "• Generate VDF scripts automatically\n" +
+                    "• Copy Unity builds to ContentBuilder\n" +
+                    "• Run SteamCMD to upload\n" +
+                    "• Multi-depot support\n" +
+                    "• Branch selection",
+                    MessageType.Info
+                );
+
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            // Build Config Editor
+            if (_serializedBuildConfig == null || _serializedBuildConfig.targetObject != _buildConfig)
+            {
+                _serializedBuildConfig = new SerializedObject(_buildConfig);
+            }
+
+            _serializedBuildConfig.Update();
+
+            // SteamCMD Settings
             EditorGUILayout.BeginVertical(_boxStyle);
-            EditorGUILayout.HelpBox(
-                "Build & Deploy:\n" +
-                "• SteamPipe integration\n" +
-                "• One-click build & upload\n" +
-                "• Depot management\n" +
-                "• Branch selection",
-                MessageType.Info
-            );
-            
-            EditorGUILayout.Space(5);
-            GUILayout.Label("Coming soon...", EditorStyles.centeredGreyMiniLabel);
+            GUILayout.Label("SteamCMD", EditorStyles.boldLabel);
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.PropertyField(_serializedBuildConfig.FindProperty("SteamCmdPath"), new GUIContent("SteamCMD Path"));
+            if (GUILayout.Button("...", GUILayout.Width(30)))
+            {
+                var path = EditorUtility.OpenFilePanel("Select SteamCMD", "", "exe");
+                if (!string.IsNullOrEmpty(path))
+                {
+                    _serializedBuildConfig.FindProperty("SteamCmdPath").stringValue = path;
+                }
+            }
+            if (GUILayout.Button("Auto", GUILayout.Width(40)))
+            {
+                _serializedBuildConfig.FindProperty("SteamCmdPath").stringValue = SteamPipeBuilder.GetDefaultSteamCmdPath();
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.BeginHorizontal();
+            EditorGUILayout.PropertyField(_serializedBuildConfig.FindProperty("ContentBuilderPath"), new GUIContent("ContentBuilder"));
+            if (GUILayout.Button("...", GUILayout.Width(30)))
+            {
+                var path = EditorUtility.OpenFolderPanel("Select ContentBuilder Folder", "", "");
+                if (!string.IsNullOrEmpty(path))
+                {
+                    _serializedBuildConfig.FindProperty("ContentBuilderPath").stringValue = path;
+                }
+            }
+            if (GUILayout.Button("Init", GUILayout.Width(40)))
+            {
+                var contentPath = _serializedBuildConfig.FindProperty("ContentBuilderPath").stringValue;
+                if (string.IsNullOrEmpty(contentPath))
+                {
+                    contentPath = SteamPipeBuilder.GetDefaultContentBuilderPath();
+                    _serializedBuildConfig.FindProperty("ContentBuilderPath").stringValue = contentPath;
+                }
+                SteamPipeBuilder.InitializeContentBuilder(contentPath);
+                _buildDeployStatus = "ContentBuilder folder initialized.";
+            }
+            EditorGUILayout.EndHorizontal();
+
             EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(5);
+
+            // Account Settings
+            EditorGUILayout.BeginVertical(_boxStyle);
+            GUILayout.Label("Steam Account", EditorStyles.boldLabel);
+
+            EditorGUILayout.PropertyField(_serializedBuildConfig.FindProperty("Username"));
+            
+            EditorGUILayout.PropertyField(_serializedBuildConfig.FindProperty("StorePassword"));
+            if (_buildConfig.StorePassword)
+            {
+                EditorGUILayout.PropertyField(_serializedBuildConfig.FindProperty("Password"));
+                EditorGUILayout.HelpBox("Warning: Storing password in config is not recommended for shared projects.", MessageType.Warning);
+            }
+
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(5);
+
+            // App Settings
+            EditorGUILayout.BeginVertical(_boxStyle);
+            GUILayout.Label("App Configuration", EditorStyles.boldLabel);
+
+            EditorGUILayout.PropertyField(_serializedBuildConfig.FindProperty("AppId"));
+            EditorGUILayout.PropertyField(_serializedBuildConfig.FindProperty("DefaultDepotId"));
+            EditorGUILayout.PropertyField(_serializedBuildConfig.FindProperty("DefaultBranch"));
+            EditorGUILayout.PropertyField(_serializedBuildConfig.FindProperty("SetLiveOnUpload"));
+            EditorGUILayout.PropertyField(_serializedBuildConfig.FindProperty("PreviewOnly"));
+
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(5);
+
+            // Depots
+            EditorGUILayout.BeginVertical(_boxStyle);
+            GUILayout.Label("Depots", EditorStyles.boldLabel);
+
+            EditorGUILayout.PropertyField(_serializedBuildConfig.FindProperty("Depots"), true);
+
+            if (_buildConfig.Depots.Count == 0)
+            {
+                if (GUILayout.Button("Add Default Depot"))
+                {
+                    _buildConfig.Depots.Add(new DepotConfig
+                    {
+                        Name = "Windows",
+                        DepotId = _buildConfig.DefaultDepotId,
+                        ContentRoot = "Build/Windows"
+                    });
+                    EditorUtility.SetDirty(_buildConfig);
+                }
+            }
+
+            EditorGUILayout.EndVertical();
+
+            _serializedBuildConfig.ApplyModifiedProperties();
+
+            EditorGUILayout.Space(5);
+
+            // Build Actions
+            EditorGUILayout.BeginVertical(_boxStyle);
+            GUILayout.Label("Build Actions", EditorStyles.boldLabel);
+
+            // Description
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label("Description:", GUILayout.Width(80));
+            _buildDescription = EditorGUILayout.TextField(_buildDescription);
+            if (GUILayout.Button("Auto", GUILayout.Width(40)))
+            {
+                _buildDescription = SteamPipeBuilder.BuildDescription(_buildConfig.DescriptionTemplate);
+            }
+            EditorGUILayout.EndHorizontal();
+
+            // Branch
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label("Branch:", GUILayout.Width(80));
+            int branchIndex = _buildConfig.Branches.IndexOf(_buildBranch);
+            if (branchIndex < 0) branchIndex = 0;
+            branchIndex = EditorGUILayout.Popup(branchIndex, _buildConfig.Branches.ToArray());
+            _buildBranch = _buildConfig.Branches[branchIndex];
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space(5);
+
+            EditorGUILayout.BeginHorizontal();
+
+            if (GUILayout.Button("Generate VDF", GUILayout.Height(30)))
+            {
+                GenerateVdfFiles();
+            }
+
+            if (GUILayout.Button("Open ContentBuilder", GUILayout.Height(30)))
+            {
+                if (!string.IsNullOrEmpty(_buildConfig.ContentBuilderPath))
+                {
+                    EditorUtility.RevealInFinder(_buildConfig.ContentBuilderPath);
+                }
+            }
+
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.BeginHorizontal();
+
+            GUI.enabled = !_buildDeployRunning;
+            if (GUILayout.Button("Upload to Steam", GUILayout.Height(35)))
+            {
+                UploadToSteam();
+            }
+            GUI.enabled = true;
+
+            if (GUILayout.Button("Open Steamworks", GUILayout.Height(35)))
+            {
+                Application.OpenURL($"https://partner.steamgames.com/apps/builds/{_buildConfig.AppId}");
+            }
+
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.EndVertical();
+
+            // Status / Output
+            if (!string.IsNullOrEmpty(_buildDeployStatus))
+            {
+                EditorGUILayout.Space(5);
+                EditorGUILayout.BeginVertical(_boxStyle);
+                GUILayout.Label("Status", EditorStyles.boldLabel);
+                
+                _buildDeployScrollPosition = EditorGUILayout.BeginScrollView(_buildDeployScrollPosition, GUILayout.Height(150));
+                EditorGUILayout.TextArea(_buildDeployStatus, GUILayout.ExpandHeight(true));
+                EditorGUILayout.EndScrollView();
+
+                if (GUILayout.Button("Clear", GUILayout.Height(20)))
+                {
+                    _buildDeployStatus = "";
+                }
+
+                EditorGUILayout.EndVertical();
+            }
         }
+
+        #region Build Deploy Fields
+
+        private SteamBuildConfig _buildConfig;
+        private SerializedObject _serializedBuildConfig;
+        private string _buildDescription = "";
+        private string _buildBranch = "default";
+        private string _buildDeployStatus = "";
+        private bool _buildDeployRunning;
+        private Vector2 _buildDeployScrollPosition;
+
+        private void CreateBuildConfig()
+        {
+            var config = ScriptableObject.CreateInstance<SteamBuildConfig>();
+
+            // Set defaults from main config
+            if (_config != null)
+            {
+                config.AppId = _config.AppId;
+                config.DefaultDepotId = _config.AppId + 1;
+            }
+
+            config.SteamCmdPath = SteamPipeBuilder.GetDefaultSteamCmdPath();
+            config.ContentBuilderPath = SteamPipeBuilder.GetDefaultContentBuilderPath();
+
+            // Save asset
+            string resourcesPath = "Assets/Resources";
+            if (!AssetDatabase.IsValidFolder(resourcesPath))
+            {
+                AssetDatabase.CreateFolder("Assets", "Resources");
+            }
+
+            string assetPath = $"{resourcesPath}/SteamBuildConfig.asset";
+            AssetDatabase.CreateAsset(config, assetPath);
+            AssetDatabase.SaveAssets();
+            AssetDatabase.Refresh();
+
+            _buildConfig = config;
+            Selection.activeObject = config;
+            EditorGUIUtility.PingObject(config);
+
+            Debug.Log($"[SteamToolkit] Created: {assetPath}");
+        }
+
+        private void GenerateVdfFiles()
+        {
+            if (string.IsNullOrEmpty(_buildDescription))
+            {
+                _buildDescription = SteamPipeBuilder.BuildDescription(_buildConfig.DescriptionTemplate);
+            }
+
+            try
+            {
+                SteamPipeBuilder.WriteVdfFiles(_buildConfig, _buildDescription, _buildBranch);
+                _buildDeployStatus = "VDF files generated successfully!\n\n" +
+                    $"App VDF: app_{_buildConfig.AppId}.vdf\n";
+                
+                foreach (var depot in _buildConfig.Depots)
+                {
+                    _buildDeployStatus += $"Depot VDF: depot_{depot.DepotId}.vdf\n";
+                }
+            }
+            catch (Exception ex)
+            {
+                _buildDeployStatus = $"ERROR: {ex.Message}";
+            }
+        }
+
+        private void UploadToSteam()
+        {
+            // Validate
+            if (string.IsNullOrEmpty(_buildConfig.Username))
+            {
+                _buildDeployStatus = "ERROR: Username not set.";
+                return;
+            }
+
+            if (string.IsNullOrEmpty(_buildConfig.SteamCmdPath))
+            {
+                _buildDeployStatus = "ERROR: SteamCMD path not set.";
+                return;
+            }
+
+            // Get password
+            string password = _buildConfig.StorePassword ? _buildConfig.Password : "";
+            
+            if (!_buildConfig.StorePassword)
+            {
+                password = EditorInputDialog.Show("Steam Password", "Enter Steam password:", "", true);
+                if (password == null) return; // Cancelled
+            }
+
+            // Generate VDF if needed
+            GenerateVdfFiles();
+
+            // Run SteamCMD
+            _buildDeployRunning = true;
+            _buildDeployStatus = "Starting upload...\n";
+
+            SteamPipeBuilder.RunSteamCmd(_buildConfig, password,
+                output =>
+                {
+                    _buildDeployStatus += output + "\n";
+                    Repaint();
+                },
+                exitCode =>
+                {
+                    _buildDeployRunning = false;
+                    _buildDeployStatus += $"\n=== Completed with exit code: {exitCode} ===";
+                    Repaint();
+                }
+            );
+        }
+
+        #endregion
 
         private void DrawSettingsTab()
         {
