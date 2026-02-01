@@ -34,8 +34,8 @@ namespace SteamToolkit
         public bool TestMode = false;
 
         [Header("Web API")]
-        [Tooltip("Steam Web API Key (get from https://steamcommunity.com/dev/apikey)")]
-        public string WebApiKey = "";
+        [Tooltip("Steam Publisher API Key (get from https://partner.steamgames.com/pub/webapi)\nRequired for: Achievements, Stats, Inventory, Leaderboards in Edit Mode")]
+        public string PublisherApiKey = "";
 
         [Header("Services")]
         [Tooltip("Enable Achievement service")]

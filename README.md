@@ -167,7 +167,22 @@ foreach (var def in definitions)
 
 ## Configuration
 
-Settings available in SteamConfig asset:
+### Publisher API Key
+
+Steam Toolkit uses Publisher API Key for Edit Mode features (viewing achievements, stats, inventory without entering Play Mode).
+
+| Feature | Edit Mode | Play Mode |
+|---------|-----------|-----------|
+| Achievements | ✅ Schema, icons, percentages | ✅ Full runtime control |
+| Stats | ✅ Schema, defaults | ✅ Get/Set values |
+| Inventory | ✅ Item definitions | ✅ User items, grants, consume |
+| Leaderboards | ❌ Not available | ✅ Full access |
+
+**Get your key:** https://partner.steamgames.com/pub/webapi
+
+> **Note:** Publisher API Key is different from the regular Steam Web API Key (steamcommunity.com/dev/apikey). Publisher keys are only available to game developers/publishers and provide access to private game data.
+
+### Settings
 
 | Setting | Description | Default |
 |---------|-------------|---------|

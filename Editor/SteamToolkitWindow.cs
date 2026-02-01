@@ -413,14 +413,14 @@ namespace SteamToolkit.Editor
             }
 
             // API Key check
-            if (string.IsNullOrEmpty(_config.WebApiKey))
+            if (string.IsNullOrEmpty(_config.PublisherApiKey))
             {
                 EditorGUILayout.BeginVertical(_boxStyle);
                 EditorGUILayout.HelpBox(
-                    "Steam Web API Key required to view achievements in Edit Mode.\n\n" +
-                    "1. Go to: https://steamcommunity.com/dev/apikey\n" +
-                    "2. Generate an API key\n" +
-                    "3. Paste it in Settings tab → Web API Key",
+                    "Publisher API Key required to view achievements in Edit Mode.\n\n" +
+                    "1. Go to: https://partner.steamgames.com/pub/webapi\n" +
+                    "2. Create a Web API key for your app\n" +
+                    "3. Paste it in Settings tab → Publisher API Key",
                     MessageType.Info
                 );
 
@@ -429,7 +429,7 @@ namespace SteamToolkit.Editor
                 
                 if (GUILayout.Button("Get API Key", GUILayout.Height(25)))
                 {
-                    Application.OpenURL("https://steamcommunity.com/dev/apikey");
+                    Application.OpenURL("https://partner.steamgames.com/pub/webapi");
                 }
                 
                 if (GUILayout.Button("Go to Settings", GUILayout.Height(25)))
@@ -508,7 +508,7 @@ namespace SteamToolkit.Editor
             _webAchievementsError = null;
 
             SteamWebAPI.GetAchievementSchema(
-                _config.WebApiKey,
+                _config.PublisherApiKey,
                 _config.AppId,
                 achievements =>
                 {
@@ -853,14 +853,14 @@ namespace SteamToolkit.Editor
             }
 
             // API Key check
-            if (string.IsNullOrEmpty(_config.WebApiKey))
+            if (string.IsNullOrEmpty(_config.PublisherApiKey))
             {
                 EditorGUILayout.BeginVertical(_boxStyle);
                 EditorGUILayout.HelpBox(
-                    "Steam Web API Key required to view stats in Edit Mode.\n\n" +
-                    "1. Go to: https://steamcommunity.com/dev/apikey\n" +
-                    "2. Generate an API key\n" +
-                    "3. Paste it in Settings tab → Web API Key",
+                    "Publisher API Key required to view stats in Edit Mode.\n\n" +
+                    "1. Go to: https://partner.steamgames.com/pub/webapi\n" +
+                    "2. Create a Web API key for your app\n" +
+                    "3. Paste it in Settings tab → Publisher API Key",
                     MessageType.Info
                 );
 
@@ -869,7 +869,7 @@ namespace SteamToolkit.Editor
                 
                 if (GUILayout.Button("Get API Key", GUILayout.Height(25)))
                 {
-                    Application.OpenURL("https://steamcommunity.com/dev/apikey");
+                    Application.OpenURL("https://partner.steamgames.com/pub/webapi");
                 }
                 
                 if (GUILayout.Button("Go to Settings", GUILayout.Height(25)))
@@ -953,7 +953,7 @@ namespace SteamToolkit.Editor
             _webStatsError = null;
 
             SteamWebAPI.GetStatsSchema(
-                _config.WebApiKey,
+                _config.PublisherApiKey,
                 _config.AppId,
                 stats =>
                 {
@@ -1310,40 +1310,242 @@ namespace SteamToolkit.Editor
             GUILayout.Label("Inventory", EditorStyles.boldLabel);
             EditorGUILayout.Space(5);
 
-            if (!Application.isPlaying)
+            // Play Mode - Runtime API
+            if (Application.isPlaying)
+            {
+                DrawPlayModeInventory();
+            }
+            // Edit Mode - Web API
+            else
+            {
+                DrawEditModeInventory();
+            }
+        }
+
+        private void DrawEditModeInventory()
+        {
+            if (_config == null)
+            {
+                DrawNoConfigWarning();
+                return;
+            }
+
+            // API Key check
+            if (string.IsNullOrEmpty(_config.PublisherApiKey))
             {
                 EditorGUILayout.BeginVertical(_boxStyle);
                 EditorGUILayout.HelpBox(
-                    "Enter Play Mode to manage inventory.\n\n" +
-                    "Features:\n" +
-                    "• View item definitions\n" +
-                    "• View user's inventory\n" +
-                    "• Grant promo items\n" +
-                    "• Consume items",
+                    "Publisher API Key required to view inventory items in Edit Mode.\n\n" +
+                    "1. Go to: https://partner.steamgames.com/pub/webapi\n" +
+                    "2. Create a Web API key for your app\n" +
+                    "3. Paste it in Settings tab → Publisher API Key",
                     MessageType.Info
                 );
-                
+
                 EditorGUILayout.Space(5);
-                
                 EditorGUILayout.BeginHorizontal();
+                
+                if (GUILayout.Button("Get API Key", GUILayout.Height(25)))
+                {
+                    Application.OpenURL("https://partner.steamgames.com/pub/webapi");
+                }
+                
+                if (GUILayout.Button("Go to Settings", GUILayout.Height(25)))
+                {
+                    _currentTab = Tab.Settings;
+                }
+                
+                EditorGUILayout.EndHorizontal();
+                EditorGUILayout.EndVertical();
+                
+                EditorGUILayout.Space(10);
+                
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Or enter Play Mode to use Runtime API.", MessageType.Info);
                 if (GUILayout.Button("Enter Play Mode", GUILayout.Height(25)))
                 {
                     EditorApplication.isPlaying = true;
                 }
-                if (GUILayout.Button("Open Steamworks", GUILayout.Height(25)))
-                {
-                    if (_config != null)
-                    {
-                        Application.OpenURL($"https://partner.steamgames.com/apps/inventoryservice/{_config.AppId}");
-                    }
-                }
-                EditorGUILayout.EndHorizontal();
+                EditorGUILayout.EndVertical();
                 
+                return;
+            }
+
+            // Toolbar
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.BeginHorizontal();
+
+            if (_webInventoryLoading)
+            {
+                GUILayout.Label("Loading...", EditorStyles.boldLabel);
+            }
+            else
+            {
+                if (GUILayout.Button("Fetch from Steam", GUILayout.Width(120)))
+                {
+                    FetchWebInventory();
+                }
+            }
+
+            if (GUILayout.Button("Open Steamworks", GUILayout.Width(120)))
+            {
+                Application.OpenURL($"https://partner.steamgames.com/apps/inventoryservice/{_config.AppId}");
+            }
+
+            GUILayout.FlexibleSpace();
+            GUILayout.Label($"{_webInventoryItems.Count} Items", EditorStyles.boldLabel);
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+
+            // Error message
+            if (!string.IsNullOrEmpty(_webInventoryError))
+            {
+                EditorGUILayout.HelpBox(_webInventoryError, MessageType.Error);
+            }
+
+            EditorGUILayout.Space(5);
+
+            // Items list
+            if (_webInventoryItems.Count == 0 && !_webInventoryLoading)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Click 'Fetch from Steam' to load inventory item definitions.", MessageType.Info);
                 EditorGUILayout.EndVertical();
                 return;
             }
 
-            DrawPlayModeInventory();
+            _webInventoryScrollPosition = EditorGUILayout.BeginScrollView(_webInventoryScrollPosition);
+
+            foreach (var item in _webInventoryItems)
+            {
+                DrawWebInventoryItem(item);
+            }
+
+            EditorGUILayout.EndScrollView();
+        }
+
+        private List<WebInventoryItem> _webInventoryItems = new List<WebInventoryItem>();
+        private bool _webInventoryLoading;
+        private string _webInventoryError;
+        private Vector2 _webInventoryScrollPosition;
+        private Dictionary<int, Texture2D> _inventoryIconCache = new Dictionary<int, Texture2D>();
+
+        private void FetchWebInventory()
+        {
+            _webInventoryLoading = true;
+            _webInventoryError = null;
+
+            SteamWebAPI.GetInventoryItemDefinitions(
+                _config.PublisherApiKey,
+                _config.AppId,
+                items =>
+                {
+                    _webInventoryItems = items;
+                    _webInventoryLoading = false;
+                    Repaint();
+                },
+                error =>
+                {
+                    _webInventoryError = error;
+                    _webInventoryLoading = false;
+                    Repaint();
+                }
+            );
+        }
+
+        private void DrawWebInventoryItem(WebInventoryItem item)
+        {
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.BeginHorizontal();
+
+            // Icon placeholder
+            var iconRect = GUILayoutUtility.GetRect(48, 48, GUILayout.Width(48), GUILayout.Height(48));
+            
+            if (item.IconTexture != null)
+            {
+                GUI.DrawTexture(iconRect, item.IconTexture, ScaleMode.ScaleToFit);
+            }
+            else
+            {
+                EditorGUI.DrawRect(iconRect, new Color(0.2f, 0.2f, 0.2f));
+                
+                // Load icon async
+                if (!string.IsNullOrEmpty(item.IconUrl) && !_inventoryIconCache.ContainsKey(item.ItemDefId))
+                {
+                    LoadInventoryIcon(item);
+                }
+            }
+
+            GUILayout.Space(10);
+
+            // Info
+            EditorGUILayout.BeginVertical();
+            
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label(string.IsNullOrEmpty(item.Name) ? $"Item #{item.ItemDefId}" : item.Name, EditorStyles.boldLabel);
+            GUILayout.FlexibleSpace();
+            EditorGUILayout.EndHorizontal();
+            
+            if (!string.IsNullOrEmpty(item.Description))
+            {
+                GUILayout.Label(item.Description, EditorStyles.wordWrappedMiniLabel);
+            }
+            
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label($"ID: {item.ItemDefId}", EditorStyles.miniLabel);
+            
+            if (!string.IsNullOrEmpty(item.Type))
+                GUILayout.Label($"Type: {item.Type}", EditorStyles.miniLabel);
+            
+            if (!string.IsNullOrEmpty(item.Price))
+                GUILayout.Label($"Price: {item.Price}", EditorStyles.miniLabel);
+                
+            GUILayout.FlexibleSpace();
+            
+            if (item.Tradable) GUILayout.Label("[Tradable]", EditorStyles.miniLabel);
+            if (item.Marketable) GUILayout.Label("[Marketable]", EditorStyles.miniLabel);
+            
+            EditorGUILayout.EndHorizontal();
+            
+            EditorGUILayout.EndVertical();
+
+            // Copy button
+            if (GUILayout.Button("Copy ID", GUILayout.Width(60), GUILayout.Height(40)))
+            {
+                EditorGUIUtility.systemCopyBuffer = item.ItemDefId.ToString();
+                Debug.Log($"[SteamToolkit] Copied: {item.ItemDefId}");
+            }
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+        }
+
+        private void LoadInventoryIcon(WebInventoryItem item)
+        {
+            _inventoryIconCache[item.ItemDefId] = null; // Mark as loading
+
+            var request = UnityWebRequestTexture.GetTexture(item.IconUrl);
+            var operation = request.SendWebRequest();
+
+            EditorApplication.update += CheckIconRequest;
+
+            void CheckIconRequest()
+            {
+                if (!operation.isDone) return;
+
+                EditorApplication.update -= CheckIconRequest;
+
+                if (request.result == UnityWebRequest.Result.Success)
+                {
+                    var texture = DownloadHandlerTexture.GetContent(request);
+                    item.IconTexture = texture;
+                    _inventoryIconCache[item.ItemDefId] = texture;
+                    Repaint();
+                }
+
+                request.Dispose();
+            }
         }
 
         #region Inventory Play Mode
@@ -2038,19 +2240,25 @@ namespace SteamToolkit.Editor
 
             EditorGUILayout.Space(5);
 
-            // Web API Settings
+            // Publisher API Settings
             EditorGUILayout.BeginVertical(_boxStyle);
-            GUILayout.Label("Web API", EditorStyles.boldLabel);
-            EditorGUILayout.PropertyField(_serializedConfig.FindProperty("WebApiKey"), new GUIContent("API Key"));
+            GUILayout.Label("Publisher API", EditorStyles.boldLabel);
+            EditorGUILayout.PropertyField(_serializedConfig.FindProperty("PublisherApiKey"), new GUIContent("API Key"));
             
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button("Get API Key", GUILayout.Height(20)))
             {
-                Application.OpenURL("https://steamcommunity.com/dev/apikey");
+                Application.OpenURL("https://partner.steamgames.com/pub/webapi");
             }
             EditorGUILayout.EndHorizontal();
             
-            EditorGUILayout.HelpBox("Web API Key is used to fetch achievement data in Edit Mode. Get one from Steam.", MessageType.Info);
+            EditorGUILayout.HelpBox(
+                "Publisher API Key enables Edit Mode features:\n" +
+                "• View Achievements & Stats schema\n" +
+                "• View Inventory item definitions\n" +
+                "• Access Leaderboard data\n\n" +
+                "Get your key from Steamworks Partner site.", 
+                MessageType.Info);
             EditorGUILayout.EndVertical();
 
             EditorGUILayout.Space(5);

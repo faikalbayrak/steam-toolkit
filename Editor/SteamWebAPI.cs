@@ -20,7 +20,7 @@ namespace SteamToolkit.Editor
         {
             if (string.IsNullOrEmpty(apiKey))
             {
-                onError?.Invoke("Web API Key is not set. Get one from https://steamcommunity.com/dev/apikey");
+                onError?.Invoke("Publisher API Key is not set. Get one from https://partner.steamgames.com/pub/webapi");
                 return;
             }
 
@@ -87,7 +87,7 @@ namespace SteamToolkit.Editor
         {
             if (string.IsNullOrEmpty(apiKey))
             {
-                onError?.Invoke("Web API Key is not set. Get one from https://steamcommunity.com/dev/apikey");
+                onError?.Invoke("Publisher API Key is not set. Get one from https://partner.steamgames.com/pub/webapi");
                 return;
             }
 
@@ -193,6 +193,144 @@ namespace SteamToolkit.Editor
             }
         }
 
+        /// <summary>
+        /// Fetch inventory item definitions using Publisher API Key.
+        /// Requires Publisher API Key from partner.steamgames.com
+        /// </summary>
+        public static void GetInventoryItemDefinitions(string publisherKey, uint appId, Action<List<WebInventoryItem>> onSuccess, Action<string> onError)
+        {
+            if (string.IsNullOrEmpty(publisherKey))
+            {
+                onError?.Invoke("Publisher API Key is not set. Get one from https://partner.steamgames.com/pub/webapi");
+                return;
+            }
+
+            string url = $"{BASE_URL}/IInventoryService/GetItemDefMeta/v1/?key={publisherKey}&appid={appId}";
+
+            var request = UnityWebRequest.Get(url);
+            var operation = request.SendWebRequest();
+
+            EditorApplication.update += CheckRequest;
+
+            void CheckRequest()
+            {
+                if (!operation.isDone) return;
+
+                EditorApplication.update -= CheckRequest;
+
+                if (request.result != UnityWebRequest.Result.Success)
+                {
+                    onError?.Invoke($"Request failed: {request.error}");
+                    request.Dispose();
+                    return;
+                }
+
+                try
+                {
+                    // Check for Steam error response
+                    if (request.downloadHandler.text.Contains("\"success\":false") || 
+                        request.downloadHandler.text.Contains("Access Denied"))
+                    {
+                        onError?.Invoke("Access denied. Make sure you're using a Publisher API Key (not regular Web API Key) and you have access to this app.");
+                        request.Dispose();
+                        return;
+                    }
+
+                    var response = JsonUtility.FromJson<InventoryItemDefMetaResponse>(request.downloadHandler.text);
+                    
+                    var items = new List<WebInventoryItem>();
+                    
+                    if (response?.response?.items != null)
+                    {
+                        foreach (var item in response.response.items)
+                        {
+                            items.Add(new WebInventoryItem
+                            {
+                                ItemDefId = item.itemdefid,
+                                Modified = item.modified
+                            });
+                        }
+                    }
+
+                    // If we got items, fetch full definitions
+                    if (items.Count > 0)
+                    {
+                        GetInventoryItemDefinitionsDetail(publisherKey, appId, items, onSuccess, onError);
+                    }
+                    else
+                    {
+                        onSuccess?.Invoke(items);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    onError?.Invoke($"Parse error: {ex.Message}\n\nResponse: {request.downloadHandler.text}");
+                }
+
+                request.Dispose();
+            }
+        }
+
+        private static void GetInventoryItemDefinitionsDetail(string publisherKey, uint appId, List<WebInventoryItem> items, Action<List<WebInventoryItem>> onSuccess, Action<string> onError)
+        {
+            // Build itemdefids parameter
+            var itemDefIds = string.Join(",", items.ConvertAll(i => i.ItemDefId.ToString()));
+            string url = $"{BASE_URL}/IInventoryService/GetItemDef/v1/?key={publisherKey}&appid={appId}&itemdefids={itemDefIds}";
+
+            var request = UnityWebRequest.Get(url);
+            var operation = request.SendWebRequest();
+
+            EditorApplication.update += CheckRequest;
+
+            void CheckRequest()
+            {
+                if (!operation.isDone) return;
+
+                EditorApplication.update -= CheckRequest;
+
+                if (request.result != UnityWebRequest.Result.Success)
+                {
+                    // Return basic items without details
+                    onSuccess?.Invoke(items);
+                    request.Dispose();
+                    return;
+                }
+
+                try
+                {
+                    var response = JsonUtility.FromJson<InventoryItemDefResponse>(request.downloadHandler.text);
+                    
+                    if (response?.response?.itemdefs != null)
+                    {
+                        foreach (var def in response.response.itemdefs)
+                        {
+                            var item = items.Find(i => i.ItemDefId == def.itemdefid);
+                            if (item != null)
+                            {
+                                item.Name = def.name;
+                                item.Description = def.description;
+                                item.Type = def.type;
+                                item.Price = def.price;
+                                item.IconUrl = def.icon_url;
+                                item.Tradable = def.tradable;
+                                item.Marketable = def.marketable;
+                                item.Commodity = def.commodity;
+                            }
+                        }
+                    }
+
+                    onSuccess?.Invoke(items);
+                }
+                catch (Exception)
+                {
+                    // Return basic items without details on parse error
+                    onSuccess?.Invoke(items);
+                }
+
+                request.Dispose();
+            }
+        }
+
         #region JSON Response Classes
 
         [Serializable]
@@ -255,6 +393,52 @@ namespace SteamToolkit.Editor
             public float percent;
         }
 
+        // Inventory responses
+        [Serializable]
+        private class InventoryItemDefMetaResponse
+        {
+            public InventoryItemDefMetaResult response;
+        }
+
+        [Serializable]
+        private class InventoryItemDefMetaResult
+        {
+            public InventoryItemMeta[] items;
+        }
+
+        [Serializable]
+        private class InventoryItemMeta
+        {
+            public int itemdefid;
+            public string modified;
+        }
+
+        [Serializable]
+        private class InventoryItemDefResponse
+        {
+            public InventoryItemDefResult response;
+        }
+
+        [Serializable]
+        private class InventoryItemDefResult
+        {
+            public InventoryItemDef[] itemdefs;
+        }
+
+        [Serializable]
+        private class InventoryItemDef
+        {
+            public int itemdefid;
+            public string name;
+            public string description;
+            public string type;
+            public string price;
+            public string icon_url;
+            public bool tradable;
+            public bool marketable;
+            public bool commodity;
+        }
+
         #endregion
     }
 
@@ -286,5 +470,26 @@ namespace SteamToolkit.Editor
         public string ApiName;
         public string DisplayName;
         public int DefaultValue;
+    }
+
+    /// <summary>
+    /// Inventory item info from Web API (Publisher Key required).
+    /// </summary>
+    [Serializable]
+    public class WebInventoryItem
+    {
+        public int ItemDefId;
+        public string Name;
+        public string Description;
+        public string Type;
+        public string Price;
+        public string IconUrl;
+        public bool Tradable;
+        public bool Marketable;
+        public bool Commodity;
+        public string Modified;
+
+        // Cached icon texture
+        [NonSerialized] public Texture2D IconTexture;
     }
 }
