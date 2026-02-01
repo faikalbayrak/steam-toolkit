@@ -75,6 +75,7 @@ namespace SteamToolkit
         public SteamAuthService Auth { get; private set; }
         public SteamAchievementService Achievements { get; private set; }
         public SteamStatsService Stats { get; private set; }
+        public SteamLeaderboardService Leaderboards { get; private set; }
 #endif
 
         #endregion
@@ -249,6 +250,13 @@ namespace SteamToolkit
                 Stats = new SteamStatsService();
                 Stats.Initialize();
             }
+
+            // Leaderboards service
+            if (_config.EnableLeaderboards)
+            {
+                Leaderboards = new SteamLeaderboardService();
+                Leaderboards.Initialize();
+            }
 #endif
         }
 
@@ -266,6 +274,7 @@ namespace SteamToolkit
             Auth?.Dispose();
             Achievements?.Dispose();
             Stats?.Dispose();
+            Leaderboards?.Dispose();
 
             // Shutdown Steam
             SteamAPI.Shutdown();

@@ -6,10 +6,10 @@ Comprehensive Steam integration toolkit for Unity.
 
 - **Core** - Steam initialization, user info, avatar
 - **Auth** - Session ticket, authentication
-- **Achievements** - Unlock, progress, reset (coming soon)
-- **Stats** - Get/Set player stats (coming soon)
+- **Achievements** - Unlock, progress, reset
+- **Stats** - Get/Set player stats
+- **Leaderboards** - Upload/download scores, rankings
 - **Inventory** - Item management (coming soon)
-- **Leaderboards** - Score upload/download (coming soon)
 - **Cloud Save** - Remote storage (coming soon)
 - **Workshop** - UGC support (coming soon)
 - **Build/Deploy** - SteamPipe integration (coming soon)
@@ -109,6 +109,29 @@ var myAvatar = SteamCore.Instance.GetAvatar(
 avatarImage.texture = myAvatar;
 ```
 
+### Leaderboards
+
+```csharp
+// Upload score (keeps best)
+SteamCore.Instance.Leaderboards.UploadScore("HighScores", 5000, ScoreUploadMethod.KeepBest, 
+    success => Debug.Log($"Upload: {success}"));
+
+// Download top 10
+SteamCore.Instance.Leaderboards.DownloadTopScores("HighScores", 10, entries =>
+{
+    foreach (var entry in entries)
+    {
+        Debug.Log($"#{entry.Rank} {entry.PlayerName}: {entry.Score}");
+    }
+});
+
+// Download scores around current user
+SteamCore.Instance.Leaderboards.DownloadScoresAroundUser("HighScores", 5, entries => { });
+
+// Download friend scores
+SteamCore.Instance.Leaderboards.DownloadFriendsScores("HighScores", entries => { });
+```
+
 ## Configuration
 
 Settings available in SteamConfig asset:
@@ -130,14 +153,18 @@ SteamToolkit/
 ├── README.md
 ├── Editor/
 │   ├── SteamToolkit.Editor.asmdef
-│   └── SteamToolkitWindow.cs
+│   ├── SteamToolkitWindow.cs
+│   └── SteamWebAPI.cs
 └── Runtime/
     ├── SteamToolkit.Runtime.asmdef
     ├── Core/
     │   ├── SteamConfig.cs
     │   └── SteamCore.cs
     └── Services/
-        └── SteamAuthService.cs
+        ├── SteamAuthService.cs
+        ├── SteamAchievementService.cs
+        ├── SteamStatsService.cs
+        └── SteamLeaderboardService.cs
 ```
 
 ## FAQ

@@ -1329,20 +1329,257 @@ namespace SteamToolkit.Editor
         {
             GUILayout.Label("Leaderboards", EditorStyles.boldLabel);
             EditorGUILayout.Space(5);
-            
-            EditorGUILayout.BeginVertical(_boxStyle);
-            EditorGUILayout.HelpBox(
-                "Leaderboard management:\n" +
-                "• Leaderboard list\n" +
-                "• Upload/download scores\n" +
-                "• View top 10",
-                MessageType.Info
-            );
-            
-            EditorGUILayout.Space(5);
-            GUILayout.Label("Coming soon...", EditorStyles.centeredGreyMiniLabel);
-            EditorGUILayout.EndVertical();
+
+            if (!Application.isPlaying)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox(
+                    "Enter Play Mode to manage leaderboards.\n\n" +
+                    "Features:\n" +
+                    "• Find/Create leaderboards\n" +
+                    "• Upload scores\n" +
+                    "• Download top scores, friend scores\n" +
+                    "• View scores around current user",
+                    MessageType.Info
+                );
+                
+                EditorGUILayout.Space(5);
+                
+                EditorGUILayout.BeginHorizontal();
+                if (GUILayout.Button("Enter Play Mode", GUILayout.Height(25)))
+                {
+                    EditorApplication.isPlaying = true;
+                }
+                if (GUILayout.Button("Open Steamworks", GUILayout.Height(25)))
+                {
+                    if (_config != null)
+                    {
+                        Application.OpenURL($"https://partner.steamgames.com/apps/leaderboards/{_config.AppId}");
+                    }
+                }
+                EditorGUILayout.EndHorizontal();
+                
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            DrawPlayModeLeaderboards();
         }
+
+        #region Leaderboards Play Mode
+
+        private string _leaderboardName = "Spacewar_GlobalScores";
+        private int _uploadScore = 1000;
+        private int _downloadCount = 10;
+        private List<LeaderboardEntry> _leaderboardEntries = new List<LeaderboardEntry>();
+        private Vector2 _leaderboardScrollPosition;
+        private bool _leaderboardLoading;
+        private string _leaderboardStatus = "";
+
+        private void DrawPlayModeLeaderboards()
+        {
+            if (!SteamCore.HasInstance || !SteamCore.Instance.IsInitialized)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Steam not initialized.", MessageType.Warning);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+#if !DISABLESTEAMWORKS
+            if (SteamCore.Instance.Leaderboards == null)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Leaderboard service not enabled. Enable it in Settings.", MessageType.Warning);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            // Leaderboard Name
+            EditorGUILayout.BeginVertical(_boxStyle);
+            GUILayout.Label("Leaderboard", EditorStyles.boldLabel);
+            _leaderboardName = EditorGUILayout.TextField("Name", _leaderboardName);
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(5);
+
+            // Upload Score
+            EditorGUILayout.BeginVertical(_boxStyle);
+            GUILayout.Label("Upload Score", EditorStyles.boldLabel);
+            
+            EditorGUILayout.BeginHorizontal();
+            _uploadScore = EditorGUILayout.IntField("Score", _uploadScore);
+            
+            GUI.enabled = !_leaderboardLoading;
+            if (GUILayout.Button("Upload (Best)", GUILayout.Width(100)))
+            {
+                UploadScore(ScoreUploadMethod.KeepBest);
+            }
+            if (GUILayout.Button("Upload (Force)", GUILayout.Width(100)))
+            {
+                UploadScore(ScoreUploadMethod.ForceUpdate);
+            }
+            GUI.enabled = true;
+            
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(5);
+
+            // Download Scores
+            EditorGUILayout.BeginVertical(_boxStyle);
+            GUILayout.Label("Download Scores", EditorStyles.boldLabel);
+            
+            EditorGUILayout.BeginHorizontal();
+            _downloadCount = EditorGUILayout.IntField("Count", _downloadCount);
+            EditorGUILayout.EndHorizontal();
+            
+            EditorGUILayout.BeginHorizontal();
+            
+            GUI.enabled = !_leaderboardLoading;
+            if (GUILayout.Button("Top Scores"))
+            {
+                DownloadTopScores();
+            }
+            if (GUILayout.Button("Around Me"))
+            {
+                DownloadScoresAroundUser();
+            }
+            if (GUILayout.Button("Friends"))
+            {
+                DownloadFriendScores();
+            }
+            GUI.enabled = true;
+            
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(5);
+
+            // Status
+            if (!string.IsNullOrEmpty(_leaderboardStatus))
+            {
+                EditorGUILayout.HelpBox(_leaderboardStatus, _leaderboardLoading ? MessageType.Info : MessageType.None);
+            }
+
+            // Results
+            if (_leaderboardEntries.Count > 0)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                GUILayout.Label($"Results ({_leaderboardEntries.Count} entries)", EditorStyles.boldLabel);
+                
+                _leaderboardScrollPosition = EditorGUILayout.BeginScrollView(_leaderboardScrollPosition, GUILayout.MaxHeight(300));
+
+                // Header
+                EditorGUILayout.BeginHorizontal();
+                GUILayout.Label("Rank", EditorStyles.boldLabel, GUILayout.Width(50));
+                GUILayout.Label("Player", EditorStyles.boldLabel);
+                GUILayout.Label("Score", EditorStyles.boldLabel, GUILayout.Width(100));
+                EditorGUILayout.EndHorizontal();
+
+                // Entries
+                foreach (var entry in _leaderboardEntries)
+                {
+                    DrawLeaderboardEntry(entry);
+                }
+
+                EditorGUILayout.EndScrollView();
+                EditorGUILayout.EndVertical();
+            }
+#endif
+        }
+
+#if !DISABLESTEAMWORKS
+        private void UploadScore(ScoreUploadMethod method)
+        {
+            _leaderboardLoading = true;
+            _leaderboardStatus = "Uploading score...";
+            Repaint();
+
+            SteamCore.Instance.Leaderboards.UploadScore(_leaderboardName, _uploadScore, method, success =>
+            {
+                _leaderboardLoading = false;
+                _leaderboardStatus = success 
+                    ? $"Score {_uploadScore} uploaded successfully!" 
+                    : "Failed to upload score.";
+                Repaint();
+            });
+        }
+
+        private void DownloadTopScores()
+        {
+            _leaderboardLoading = true;
+            _leaderboardStatus = "Downloading top scores...";
+            _leaderboardEntries.Clear();
+            Repaint();
+
+            SteamCore.Instance.Leaderboards.DownloadTopScores(_leaderboardName, _downloadCount, entries =>
+            {
+                _leaderboardLoading = false;
+                _leaderboardEntries = entries;
+                _leaderboardStatus = $"Downloaded {entries.Count} entries.";
+                Repaint();
+            });
+        }
+
+        private void DownloadScoresAroundUser()
+        {
+            _leaderboardLoading = true;
+            _leaderboardStatus = "Downloading scores around user...";
+            _leaderboardEntries.Clear();
+            Repaint();
+
+            int range = _downloadCount / 2;
+            SteamCore.Instance.Leaderboards.DownloadScoresAroundUser(_leaderboardName, range, entries =>
+            {
+                _leaderboardLoading = false;
+                _leaderboardEntries = entries;
+                _leaderboardStatus = $"Downloaded {entries.Count} entries.";
+                Repaint();
+            });
+        }
+
+        private void DownloadFriendScores()
+        {
+            _leaderboardLoading = true;
+            _leaderboardStatus = "Downloading friend scores...";
+            _leaderboardEntries.Clear();
+            Repaint();
+
+            SteamCore.Instance.Leaderboards.DownloadFriendsScores(_leaderboardName, entries =>
+            {
+                _leaderboardLoading = false;
+                _leaderboardEntries = entries;
+                _leaderboardStatus = $"Downloaded {entries.Count} friend entries.";
+                Repaint();
+            });
+        }
+
+        private void DrawLeaderboardEntry(LeaderboardEntry entry)
+        {
+            bool isCurrentUser = entry.SteamId == SteamUser.GetSteamID();
+            
+            if (isCurrentUser)
+            {
+                var oldColor = GUI.backgroundColor;
+                GUI.backgroundColor = new Color(0.3f, 0.5f, 0.3f);
+                EditorGUILayout.BeginHorizontal(_boxStyle);
+                GUI.backgroundColor = oldColor;
+            }
+            else
+            {
+                EditorGUILayout.BeginHorizontal();
+            }
+
+            GUILayout.Label($"#{entry.Rank}", GUILayout.Width(50));
+            GUILayout.Label(entry.PlayerName + (isCurrentUser ? " (You)" : ""));
+            GUILayout.Label(entry.Score.ToString("N0"), GUILayout.Width(100));
+
+            EditorGUILayout.EndHorizontal();
+        }
+#endif
+
+        #endregion
 
         private void DrawCloudSaveTab()
         {
