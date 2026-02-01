@@ -9,7 +9,7 @@ Comprehensive Steam integration toolkit for Unity.
 - **Achievements** - Unlock, progress, reset
 - **Stats** - Get/Set player stats
 - **Leaderboards** - Upload/download scores, rankings
-- **Inventory** - Item management (coming soon)
+- **Inventory** - Item management, grants, consumption
 - **Cloud Save** - Remote storage (coming soon)
 - **Workshop** - UGC support (coming soon)
 - **Build/Deploy** - SteamPipe integration (coming soon)
@@ -133,6 +133,38 @@ SteamCore.Instance.Leaderboards.DownloadScoresAroundUser("HighScores", 5, entrie
 SteamCore.Instance.Leaderboards.DownloadFriendsScores("HighScores", entries => { });
 ```
 
+### Inventory
+
+```csharp
+// Get all items in user's inventory
+SteamCore.Instance.Inventory.GetAllItems(items =>
+{
+    foreach (var item in items)
+    {
+        Debug.Log($"{item.Name} x{item.Quantity}");
+    }
+});
+
+// Grant promotional items
+SteamCore.Instance.Inventory.GrantPromoItems(items =>
+{
+    Debug.Log($"Granted {items.Count} promo items!");
+});
+
+// Consume an item
+SteamCore.Instance.Inventory.ConsumeItem(itemId, 1, success =>
+{
+    Debug.Log($"Consumed: {success}");
+});
+
+// Get all item definitions
+var definitions = SteamCore.Instance.Inventory.GetAllItemDefinitions();
+foreach (var def in definitions)
+{
+    Debug.Log($"Item: {def.Name}, Price: {def.Price}");
+}
+```
+
 ## Configuration
 
 Settings available in SteamConfig asset:
@@ -165,7 +197,8 @@ SteamToolkit/
         ├── SteamAuthService.cs
         ├── SteamAchievementService.cs
         ├── SteamStatsService.cs
-        └── SteamLeaderboardService.cs
+        ├── SteamLeaderboardService.cs
+        └── SteamInventoryService.cs
 ```
 
 ## FAQ

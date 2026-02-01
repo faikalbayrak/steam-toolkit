@@ -76,6 +76,7 @@ namespace SteamToolkit
         public SteamAchievementService Achievements { get; private set; }
         public SteamStatsService Stats { get; private set; }
         public SteamLeaderboardService Leaderboards { get; private set; }
+        public SteamInventoryService Inventory { get; private set; }
 #endif
 
         #endregion
@@ -257,6 +258,13 @@ namespace SteamToolkit
                 Leaderboards = new SteamLeaderboardService();
                 Leaderboards.Initialize();
             }
+
+            // Inventory service
+            if (_config.EnableInventory)
+            {
+                Inventory = new SteamInventoryService();
+                Inventory.Initialize();
+            }
 #endif
         }
 
@@ -275,6 +283,7 @@ namespace SteamToolkit
             Achievements?.Dispose();
             Stats?.Dispose();
             Leaderboards?.Dispose();
+            Inventory?.Dispose();
 
             // Shutdown Steam
             SteamAPI.Shutdown();

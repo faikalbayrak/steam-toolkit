@@ -1309,21 +1309,364 @@ namespace SteamToolkit.Editor
         {
             GUILayout.Label("Inventory", EditorStyles.boldLabel);
             EditorGUILayout.Space(5);
-            
+
+            if (!Application.isPlaying)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox(
+                    "Enter Play Mode to manage inventory.\n\n" +
+                    "Features:\n" +
+                    "• View item definitions\n" +
+                    "• View user's inventory\n" +
+                    "• Grant promo items\n" +
+                    "• Consume items",
+                    MessageType.Info
+                );
+                
+                EditorGUILayout.Space(5);
+                
+                EditorGUILayout.BeginHorizontal();
+                if (GUILayout.Button("Enter Play Mode", GUILayout.Height(25)))
+                {
+                    EditorApplication.isPlaying = true;
+                }
+                if (GUILayout.Button("Open Steamworks", GUILayout.Height(25)))
+                {
+                    if (_config != null)
+                    {
+                        Application.OpenURL($"https://partner.steamgames.com/apps/inventoryservice/{_config.AppId}");
+                    }
+                }
+                EditorGUILayout.EndHorizontal();
+                
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            DrawPlayModeInventory();
+        }
+
+        #region Inventory Play Mode
+
+        private Vector2 _inventoryScrollPosition;
+        private Vector2 _itemDefsScrollPosition;
+        private List<InventoryItem> _inventoryItems = new List<InventoryItem>();
+        private List<ItemDefinitionInfo> _itemDefinitions = new List<ItemDefinitionInfo>();
+        private bool _inventoryLoading;
+        private string _inventoryStatus = "";
+        private int _inventoryViewMode = 0; // 0 = My Items, 1 = Item Definitions
+
+        private void DrawPlayModeInventory()
+        {
+            if (!SteamCore.HasInstance || !SteamCore.Instance.IsInitialized)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Steam not initialized.", MessageType.Warning);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+#if !DISABLESTEAMWORKS
+            if (SteamCore.Instance.Inventory == null)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Inventory service not enabled. Enable it in Settings.", MessageType.Warning);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            // View mode tabs
             EditorGUILayout.BeginVertical(_boxStyle);
-            EditorGUILayout.HelpBox(
-                "Inventory management:\n" +
-                "• Item definitions\n" +
-                "• Grant/Revoke items\n" +
-                "• Promo items\n" +
-                "• Drop rates",
-                MessageType.Info
-            );
+            EditorGUILayout.BeginHorizontal();
             
+            if (GUILayout.Toggle(_inventoryViewMode == 0, "My Items", EditorStyles.toolbarButton))
+                _inventoryViewMode = 0;
+            if (GUILayout.Toggle(_inventoryViewMode == 1, "Item Definitions", EditorStyles.toolbarButton))
+                _inventoryViewMode = 1;
+            
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+
             EditorGUILayout.Space(5);
-            GUILayout.Label("Coming soon...", EditorStyles.centeredGreyMiniLabel);
+
+            if (_inventoryViewMode == 0)
+            {
+                DrawMyItems();
+            }
+            else
+            {
+                DrawItemDefinitions();
+            }
+#endif
+        }
+
+#if !DISABLESTEAMWORKS
+        private void DrawMyItems()
+        {
+            // Toolbar
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.BeginHorizontal();
+
+            GUI.enabled = !_inventoryLoading;
+            if (GUILayout.Button("Refresh", GUILayout.Width(80)))
+            {
+                RefreshInventory();
+            }
+
+            if (GUILayout.Button("Grant Promos", GUILayout.Width(100)))
+            {
+                GrantPromoItems();
+            }
+            GUI.enabled = true;
+
+            GUILayout.FlexibleSpace();
+            GUILayout.Label($"{_inventoryItems.Count} Items", EditorStyles.boldLabel);
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+
+            // Status
+            if (!string.IsNullOrEmpty(_inventoryStatus))
+            {
+                EditorGUILayout.HelpBox(_inventoryStatus, _inventoryLoading ? MessageType.Info : MessageType.None);
+            }
+
+            EditorGUILayout.Space(5);
+
+            // Items list
+            if (_inventoryItems.Count == 0 && !_inventoryLoading)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("No items in inventory.\nClick 'Refresh' to load or 'Grant Promos' to get promotional items.", MessageType.Info);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            _inventoryScrollPosition = EditorGUILayout.BeginScrollView(_inventoryScrollPosition);
+
+            foreach (var item in _inventoryItems)
+            {
+                DrawInventoryItem(item);
+            }
+
+            EditorGUILayout.EndScrollView();
+        }
+
+        private void DrawItemDefinitions()
+        {
+            // Toolbar
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.BeginHorizontal();
+
+            GUI.enabled = !_inventoryLoading;
+            if (GUILayout.Button("Refresh", GUILayout.Width(80)))
+            {
+                RefreshItemDefinitions();
+            }
+            GUI.enabled = true;
+
+            GUILayout.FlexibleSpace();
+            
+            if (SteamCore.Instance.Inventory.DefinitionsLoaded)
+            {
+                GUILayout.Label($"{_itemDefinitions.Count} Definitions", EditorStyles.boldLabel);
+            }
+            else
+            {
+                GUILayout.Label("Loading definitions...", EditorStyles.miniLabel);
+            }
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(5);
+
+            // Definitions list
+            if (!SteamCore.Instance.Inventory.DefinitionsLoaded)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Waiting for item definitions to load from Steam...", MessageType.Info);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            if (_itemDefinitions.Count == 0)
+            {
+                RefreshItemDefinitions();
+            }
+
+            if (_itemDefinitions.Count == 0)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("No item definitions found.\nMake sure items are configured in Steamworks Partner site.", MessageType.Info);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            _itemDefsScrollPosition = EditorGUILayout.BeginScrollView(_itemDefsScrollPosition);
+
+            foreach (var itemDef in _itemDefinitions)
+            {
+                DrawItemDefinition(itemDef);
+            }
+
+            EditorGUILayout.EndScrollView();
+        }
+
+        private void RefreshInventory()
+        {
+            _inventoryLoading = true;
+            _inventoryStatus = "Loading inventory...";
+            Repaint();
+
+            SteamCore.Instance.Inventory.GetAllItems(items =>
+            {
+                _inventoryItems = items;
+                _inventoryLoading = false;
+                _inventoryStatus = $"Loaded {items.Count} items.";
+                Repaint();
+            });
+
+            // Also subscribe to updates
+            SteamCore.Instance.Inventory.OnInventoryUpdated -= OnInventoryUpdated;
+            SteamCore.Instance.Inventory.OnInventoryUpdated += OnInventoryUpdated;
+        }
+
+        private void OnInventoryUpdated(List<InventoryItem> items)
+        {
+            _inventoryItems = items;
+            _inventoryLoading = false;
+            _inventoryStatus = $"Inventory updated: {items.Count} items.";
+            Repaint();
+        }
+
+        private void GrantPromoItems()
+        {
+            _inventoryLoading = true;
+            _inventoryStatus = "Granting promo items...";
+            Repaint();
+
+            SteamCore.Instance.Inventory.GrantPromoItems(items =>
+            {
+                _inventoryLoading = false;
+                if (items.Count > 0)
+                {
+                    _inventoryStatus = $"Granted {items.Count} promo items!";
+                    RefreshInventory();
+                }
+                else
+                {
+                    _inventoryStatus = "No promo items to grant (already owned or none configured).";
+                }
+                Repaint();
+            });
+        }
+
+        private void RefreshItemDefinitions()
+        {
+            _itemDefinitions = SteamCore.Instance.Inventory.GetAllItemDefinitions();
+            Repaint();
+        }
+
+        private void DrawInventoryItem(InventoryItem item)
+        {
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.BeginHorizontal();
+
+            // Quantity
+            GUILayout.Label($"x{item.Quantity}", EditorStyles.boldLabel, GUILayout.Width(40));
+
+            // Info
+            EditorGUILayout.BeginVertical();
+            GUILayout.Label(string.IsNullOrEmpty(item.Name) ? $"Item #{item.ItemDefId}" : item.Name, EditorStyles.boldLabel);
+            
+            if (!string.IsNullOrEmpty(item.Description))
+            {
+                GUILayout.Label(item.Description, EditorStyles.wordWrappedMiniLabel);
+            }
+            
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label($"ID: {item.ItemId}", EditorStyles.miniLabel);
+            GUILayout.Label($"Def: {item.ItemDefId}", EditorStyles.miniLabel);
+            
+            if (item.IsNoTrade) GUILayout.Label("[No Trade]", EditorStyles.miniLabel);
+            EditorGUILayout.EndHorizontal();
+            
+            EditorGUILayout.EndVertical();
+
+            // Consume button
+            if (item.Quantity > 0)
+            {
+                if (GUILayout.Button("Consume", GUILayout.Width(70), GUILayout.Height(35)))
+                {
+                    SteamCore.Instance.Inventory.ConsumeItem(item.ItemId, 1, success =>
+                    {
+                        if (success)
+                        {
+                            _inventoryStatus = $"Consumed 1x {item.Name}";
+                            RefreshInventory();
+                        }
+                        else
+                        {
+                            _inventoryStatus = "Failed to consume item.";
+                        }
+                        Repaint();
+                    });
+                }
+            }
+
+            EditorGUILayout.EndHorizontal();
             EditorGUILayout.EndVertical();
         }
+
+        private void DrawItemDefinition(ItemDefinitionInfo itemDef)
+        {
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.BeginHorizontal();
+
+            // Info
+            EditorGUILayout.BeginVertical();
+            GUILayout.Label(string.IsNullOrEmpty(itemDef.Name) ? $"Item #{itemDef.ItemDefId}" : itemDef.Name, EditorStyles.boldLabel);
+            
+            if (!string.IsNullOrEmpty(itemDef.Description))
+            {
+                GUILayout.Label(itemDef.Description, EditorStyles.wordWrappedMiniLabel);
+            }
+            
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label($"ID: {itemDef.ItemDefId}", EditorStyles.miniLabel);
+            
+            if (!string.IsNullOrEmpty(itemDef.Type))
+                GUILayout.Label($"Type: {itemDef.Type}", EditorStyles.miniLabel);
+            
+            if (!string.IsNullOrEmpty(itemDef.Price))
+                GUILayout.Label($"Price: {itemDef.Price}", EditorStyles.miniLabel);
+            
+            if (itemDef.Tradable) GUILayout.Label("[Tradable]", EditorStyles.miniLabel);
+            if (itemDef.Marketable) GUILayout.Label("[Marketable]", EditorStyles.miniLabel);
+            
+            EditorGUILayout.EndHorizontal();
+            
+            EditorGUILayout.EndVertical();
+
+            // Grant button
+            if (GUILayout.Button("Grant", GUILayout.Width(60), GUILayout.Height(35)))
+            {
+                SteamCore.Instance.Inventory.GrantPromoItem(itemDef.ItemDefId, success =>
+                {
+                    _inventoryStatus = success 
+                        ? $"Granted {itemDef.Name}!" 
+                        : "Failed to grant (not a promo item or already owned).";
+                    Repaint();
+                });
+            }
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+        }
+#endif
+
+        #endregion
 
         private void DrawLeaderboardsTab()
         {
