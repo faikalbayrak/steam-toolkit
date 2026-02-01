@@ -81,6 +81,70 @@ namespace SteamToolkit.Editor
         }
 
         /// <summary>
+        /// Fetch stats schema from Steam Web API.
+        /// </summary>
+        public static void GetStatsSchema(string apiKey, uint appId, Action<List<WebStatInfo>> onSuccess, Action<string> onError)
+        {
+            if (string.IsNullOrEmpty(apiKey))
+            {
+                onError?.Invoke("Web API Key is not set. Get one from https://steamcommunity.com/dev/apikey");
+                return;
+            }
+
+            string url = $"{BASE_URL}/ISteamUserStats/GetSchemaForGame/v2/?key={apiKey}&appid={appId}";
+
+            var request = UnityWebRequest.Get(url);
+            var operation = request.SendWebRequest();
+
+            EditorApplication.update += CheckRequest;
+
+            void CheckRequest()
+            {
+                if (!operation.isDone) return;
+
+                EditorApplication.update -= CheckRequest;
+
+                if (request.result != UnityWebRequest.Result.Success)
+                {
+                    onError?.Invoke($"Request failed: {request.error}");
+                    request.Dispose();
+                    return;
+                }
+
+                try
+                {
+                    var response = JsonUtility.FromJson<SchemaResponse>(request.downloadHandler.text);
+                    
+                    if (response?.game?.availableGameStats?.stats == null)
+                    {
+                        onError?.Invoke("No stats found or invalid response.");
+                        request.Dispose();
+                        return;
+                    }
+
+                    var stats = new List<WebStatInfo>();
+                    foreach (var stat in response.game.availableGameStats.stats)
+                    {
+                        stats.Add(new WebStatInfo
+                        {
+                            ApiName = stat.name,
+                            DisplayName = string.IsNullOrEmpty(stat.displayName) ? stat.name : stat.displayName,
+                            DefaultValue = stat.defaultvalue
+                        });
+                    }
+
+                    onSuccess?.Invoke(stats);
+                }
+                catch (Exception ex)
+                {
+                    onError?.Invoke($"Parse error: {ex.Message}");
+                }
+
+                request.Dispose();
+            }
+        }
+
+        /// <summary>
         /// Fetch global achievement percentages.
         /// </summary>
         public static void GetGlobalAchievementPercentages(uint appId, Action<Dictionary<string, float>> onSuccess, Action<string> onError)
@@ -211,5 +275,16 @@ namespace SteamToolkit.Editor
         // Cached icon textures
         [NonSerialized] public Texture2D IconTexture;
         [NonSerialized] public Texture2D IconGrayTexture;
+    }
+
+    /// <summary>
+    /// Stat info from Web API.
+    /// </summary>
+    [Serializable]
+    public class WebStatInfo
+    {
+        public string ApiName;
+        public string DisplayName;
+        public int DefaultValue;
     }
 }

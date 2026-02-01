@@ -817,7 +817,10 @@ namespace SteamToolkit.Editor
 
         private Vector2 _statsScrollPosition;
         private List<StatInfo> _cachedStats = new List<StatInfo>();
+        private List<WebStatInfo> _webStats = new List<WebStatInfo>();
         private bool _statsLoaded;
+        private bool _webStatsLoading;
+        private string _webStatsError;
         
         // Manual stat entry
         private string _manualStatName = "";
@@ -829,36 +832,174 @@ namespace SteamToolkit.Editor
             GUILayout.Label("Stats", EditorStyles.boldLabel);
             EditorGUILayout.Space(5);
 
-            if (!Application.isPlaying)
+            // Play Mode - Runtime API
+            if (Application.isPlaying)
+            {
+                DrawPlayModeStats();
+            }
+            // Edit Mode - Web API
+            else
+            {
+                DrawEditModeStats();
+            }
+        }
+
+        private void DrawEditModeStats()
+        {
+            if (_config == null)
+            {
+                DrawNoConfigWarning();
+                return;
+            }
+
+            // API Key check
+            if (string.IsNullOrEmpty(_config.WebApiKey))
             {
                 EditorGUILayout.BeginVertical(_boxStyle);
                 EditorGUILayout.HelpBox(
-                    "Enter Play Mode to manage stats.\n\n" +
-                    "Note: Unlike achievements, Steam Web API does not provide stat schema.\n" +
-                    "You need to know your stat names from Steamworks Partner site.",
+                    "Steam Web API Key required to view stats in Edit Mode.\n\n" +
+                    "1. Go to: https://steamcommunity.com/dev/apikey\n" +
+                    "2. Generate an API key\n" +
+                    "3. Paste it in Settings tab → Web API Key",
                     MessageType.Info
                 );
-                
+
                 EditorGUILayout.Space(5);
-                
                 EditorGUILayout.BeginHorizontal();
+                
+                if (GUILayout.Button("Get API Key", GUILayout.Height(25)))
+                {
+                    Application.OpenURL("https://steamcommunity.com/dev/apikey");
+                }
+                
+                if (GUILayout.Button("Go to Settings", GUILayout.Height(25)))
+                {
+                    _currentTab = Tab.Settings;
+                }
+                
+                EditorGUILayout.EndHorizontal();
+                EditorGUILayout.EndVertical();
+                
+                EditorGUILayout.Space(10);
+                
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Or enter Play Mode to query stats by name.", MessageType.Info);
                 if (GUILayout.Button("Enter Play Mode", GUILayout.Height(25)))
                 {
                     EditorApplication.isPlaying = true;
                 }
-                if (GUILayout.Button("Open Steamworks Stats", GUILayout.Height(25)))
-                {
-                    if (_config != null)
-                    {
-                        Application.OpenURL($"https://partner.steamgames.com/apps/stats/{_config.AppId}");
-                    }
-                }
-                EditorGUILayout.EndHorizontal();
+                EditorGUILayout.EndVertical();
                 
+                return;
+            }
+
+            // Toolbar
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.BeginHorizontal();
+
+            if (_webStatsLoading)
+            {
+                GUILayout.Label("Loading...", EditorStyles.boldLabel);
+            }
+            else
+            {
+                if (GUILayout.Button("Fetch from Steam", GUILayout.Width(120)))
+                {
+                    FetchWebStats();
+                }
+            }
+
+            if (GUILayout.Button("Open Steamworks", GUILayout.Width(120)))
+            {
+                Application.OpenURL($"https://partner.steamgames.com/apps/stats/{_config.AppId}");
+            }
+
+            GUILayout.FlexibleSpace();
+            GUILayout.Label($"{_webStats.Count} Stats", EditorStyles.boldLabel);
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+
+            // Error message
+            if (!string.IsNullOrEmpty(_webStatsError))
+            {
+                EditorGUILayout.HelpBox(_webStatsError, MessageType.Error);
+            }
+
+            EditorGUILayout.Space(5);
+
+            // Stats list
+            if (_webStats.Count == 0 && !_webStatsLoading)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Click 'Fetch from Steam' to load stats schema.", MessageType.Info);
                 EditorGUILayout.EndVertical();
                 return;
             }
 
+            _statsScrollPosition = EditorGUILayout.BeginScrollView(_statsScrollPosition);
+
+            foreach (var stat in _webStats)
+            {
+                DrawWebStatItem(stat);
+            }
+
+            EditorGUILayout.EndScrollView();
+        }
+
+        private void FetchWebStats()
+        {
+            _webStatsLoading = true;
+            _webStatsError = null;
+
+            SteamWebAPI.GetStatsSchema(
+                _config.WebApiKey,
+                _config.AppId,
+                stats =>
+                {
+                    _webStats = stats;
+                    _webStatsLoading = false;
+                    Repaint();
+                },
+                error =>
+                {
+                    _webStatsError = error;
+                    _webStatsLoading = false;
+                    Repaint();
+                }
+            );
+        }
+
+        private void DrawWebStatItem(WebStatInfo stat)
+        {
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.BeginHorizontal();
+
+            // Info
+            EditorGUILayout.BeginVertical();
+            GUILayout.Label(stat.DisplayName, EditorStyles.boldLabel);
+            
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label($"API Name: {stat.ApiName}", EditorStyles.miniLabel);
+            GUILayout.FlexibleSpace();
+            GUILayout.Label($"Default: {stat.DefaultValue}", EditorStyles.miniLabel);
+            EditorGUILayout.EndHorizontal();
+            
+            EditorGUILayout.EndVertical();
+
+            // Copy button
+            if (GUILayout.Button("Copy", GUILayout.Width(50), GUILayout.Height(35)))
+            {
+                EditorGUIUtility.systemCopyBuffer = stat.ApiName;
+                Debug.Log($"[SteamToolkit] Copied: {stat.ApiName}");
+            }
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+        }
+
+        private void DrawPlayModeStats()
+        {
             if (!SteamCore.HasInstance || !SteamCore.Instance.IsInitialized)
             {
                 EditorGUILayout.BeginVertical(_boxStyle);
@@ -882,6 +1023,12 @@ namespace SteamToolkit.Editor
                 EditorGUILayout.HelpBox("Loading stats from Steam...", MessageType.Info);
                 EditorGUILayout.EndVertical();
                 return;
+            }
+
+            // Load stats from Web API if available
+            if (_webStats.Count > 0 && _cachedStats.Count == 0)
+            {
+                LoadStatsFromSchema();
             }
 
             // Manual stat entry
@@ -942,6 +1089,11 @@ namespace SteamToolkit.Editor
             EditorGUILayout.BeginVertical(_boxStyle);
             EditorGUILayout.BeginHorizontal();
 
+            if (GUILayout.Button("Load Schema", GUILayout.Width(100)))
+            {
+                FetchWebStats();
+            }
+
             if (GUILayout.Button("Refresh All", GUILayout.Width(100)))
             {
                 RefreshAllStats();
@@ -976,8 +1128,8 @@ namespace SteamToolkit.Editor
                 EditorGUILayout.BeginVertical(_boxStyle);
                 EditorGUILayout.HelpBox(
                     "No stats loaded yet.\n\n" +
-                    "Enter a stat name above and click 'Get Value' to query it.\n" +
-                    "Stats will appear here once queried.",
+                    "• Click 'Load Schema' to fetch stat definitions from Steam\n" +
+                    "• Or enter a stat name above and click 'Get Value'",
                     MessageType.Info
                 );
                 EditorGUILayout.EndVertical();
@@ -996,6 +1148,38 @@ namespace SteamToolkit.Editor
         }
 
 #if !DISABLESTEAMWORKS
+        private void LoadStatsFromSchema()
+        {
+            _cachedStats.Clear();
+            
+            foreach (var webStat in _webStats)
+            {
+                // Try as int first
+                if (SteamCore.Instance.Stats.TryGetStatInt(webStat.ApiName, out int intVal))
+                {
+                    _cachedStats.Add(new StatInfo
+                    {
+                        Name = webStat.ApiName,
+                        DisplayName = webStat.DisplayName,
+                        Type = StatInfo.StatType.Int,
+                        IntValue = intVal
+                    });
+                }
+                else if (SteamCore.Instance.Stats.TryGetStatFloat(webStat.ApiName, out float floatVal))
+                {
+                    _cachedStats.Add(new StatInfo
+                    {
+                        Name = webStat.ApiName,
+                        DisplayName = webStat.DisplayName,
+                        Type = StatInfo.StatType.Float,
+                        FloatValue = floatVal
+                    });
+                }
+            }
+            
+            Repaint();
+        }
+
         private void AddOrUpdateCachedStat(string name, int value)
         {
             var existing = _cachedStats.Find(s => s.Name == name);
@@ -1040,6 +1224,14 @@ namespace SteamToolkit.Editor
 
         private void RefreshAllStats()
         {
+            // If we have schema, reload from it
+            if (_webStats.Count > 0)
+            {
+                LoadStatsFromSchema();
+                return;
+            }
+            
+            // Otherwise refresh existing
             foreach (var stat in _cachedStats)
             {
                 if (stat.Type == StatInfo.StatType.Int)
@@ -1065,7 +1257,11 @@ namespace SteamToolkit.Editor
 
             // Name
             EditorGUILayout.BeginVertical();
-            GUILayout.Label(stat.Name, EditorStyles.boldLabel);
+            GUILayout.Label(stat.DisplayName, EditorStyles.boldLabel);
+            if (stat.Name != stat.DisplayName)
+            {
+                GUILayout.Label($"API: {stat.Name}", EditorStyles.miniLabel);
+            }
             EditorGUILayout.EndVertical();
 
             // Value field
