@@ -74,6 +74,7 @@ namespace SteamToolkit
 #if !DISABLESTEAMWORKS
         public SteamAuthService Auth { get; private set; }
         public SteamAchievementService Achievements { get; private set; }
+        public SteamStatsService Stats { get; private set; }
 #endif
 
         #endregion
@@ -241,6 +242,13 @@ namespace SteamToolkit
                 Achievements = new SteamAchievementService();
                 Achievements.Initialize();
             }
+
+            // Stats service
+            if (_config.EnableStats)
+            {
+                Stats = new SteamStatsService();
+                Stats.Initialize();
+            }
 #endif
         }
 
@@ -257,6 +265,7 @@ namespace SteamToolkit
             // Dispose services
             Auth?.Dispose();
             Achievements?.Dispose();
+            Stats?.Dispose();
 
             // Shutdown Steam
             SteamAPI.Shutdown();

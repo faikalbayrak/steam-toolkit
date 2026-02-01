@@ -27,16 +27,11 @@ Comprehensive Steam integration toolkit for Unity.
 
 ### Step 1: Install Steamworks.NET
 
-**Option A - Unity Asset Store (Recommended):**
-1. Go to [Steamworks.NET - Asset Store](https://assetstore.unity.com/packages/tools/integration/steamworks-net-15846)
-2. Click "Add to My Assets" → "Open in Unity"
-3. Import from Package Manager
-
-**Option B - GitHub:**
+**Option A - GitHub (Recommended):**
 1. Download `.unitypackage` from [Steamworks.NET Releases](https://github.com/rlabrecque/Steamworks.NET/releases)
 2. In Unity: Assets → Import Package → Custom Package
 
-**Option C - UPM (Git URL):**
+**Option B - UPM (Git URL):**
 ```
 https://github.com/rlabrecque/Steamworks.NET.git?path=/com.rlabrecque.steamworks.net
 ```

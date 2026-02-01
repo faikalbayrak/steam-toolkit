@@ -815,24 +815,299 @@ namespace SteamToolkit.Editor
 
         #region Stats Tab
 
+        private Vector2 _statsScrollPosition;
+        private List<StatInfo> _cachedStats = new List<StatInfo>();
+        private bool _statsLoaded;
+        
+        // Manual stat entry
+        private string _manualStatName = "";
+        private string _manualStatValue = "";
+        private int _manualStatType = 0; // 0 = Int, 1 = Float
+
         private void DrawStatsTab()
         {
             GUILayout.Label("Stats", EditorStyles.boldLabel);
             EditorGUILayout.Space(5);
-            
+
+            if (!Application.isPlaying)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox(
+                    "Enter Play Mode to manage stats.\n\n" +
+                    "Note: Unlike achievements, Steam Web API does not provide stat schema.\n" +
+                    "You need to know your stat names from Steamworks Partner site.",
+                    MessageType.Info
+                );
+                
+                EditorGUILayout.Space(5);
+                
+                EditorGUILayout.BeginHorizontal();
+                if (GUILayout.Button("Enter Play Mode", GUILayout.Height(25)))
+                {
+                    EditorApplication.isPlaying = true;
+                }
+                if (GUILayout.Button("Open Steamworks Stats", GUILayout.Height(25)))
+                {
+                    if (_config != null)
+                    {
+                        Application.OpenURL($"https://partner.steamgames.com/apps/stats/{_config.AppId}");
+                    }
+                }
+                EditorGUILayout.EndHorizontal();
+                
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            if (!SteamCore.HasInstance || !SteamCore.Instance.IsInitialized)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Steam not initialized.", MessageType.Warning);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+#if !DISABLESTEAMWORKS
+            if (SteamCore.Instance.Stats == null)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Stats service not enabled. Enable it in Settings.", MessageType.Warning);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            if (!SteamCore.Instance.Stats.StatsReceived)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox("Loading stats from Steam...", MessageType.Info);
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            // Manual stat entry
             EditorGUILayout.BeginVertical(_boxStyle);
-            EditorGUILayout.HelpBox(
-                "Stats management:\n" +
-                "• Read/write Int/Float stats\n" +
-                "• Stat definitions\n" +
-                "• Test values",
-                MessageType.Info
-            );
+            GUILayout.Label("Query Stat", EditorStyles.boldLabel);
             
+            EditorGUILayout.BeginHorizontal();
+            _manualStatName = EditorGUILayout.TextField("Stat Name", _manualStatName);
+            _manualStatType = EditorGUILayout.Popup(_manualStatType, new string[] { "Int", "Float" }, GUILayout.Width(60));
+            EditorGUILayout.EndHorizontal();
+            
+            EditorGUILayout.BeginHorizontal();
+            
+            if (GUILayout.Button("Get Value", GUILayout.Height(25)))
+            {
+                if (!string.IsNullOrEmpty(_manualStatName))
+                {
+                    if (_manualStatType == 0)
+                    {
+                        int val = SteamCore.Instance.Stats.GetStatInt(_manualStatName);
+                        _manualStatValue = val.ToString();
+                        AddOrUpdateCachedStat(_manualStatName, val);
+                    }
+                    else
+                    {
+                        float val = SteamCore.Instance.Stats.GetStatFloat(_manualStatName);
+                        _manualStatValue = val.ToString("F2");
+                        AddOrUpdateCachedStat(_manualStatName, val);
+                    }
+                }
+            }
+            
+            _manualStatValue = EditorGUILayout.TextField(_manualStatValue, GUILayout.Width(100));
+            
+            if (GUILayout.Button("Set Value", GUILayout.Height(25)))
+            {
+                if (!string.IsNullOrEmpty(_manualStatName) && !string.IsNullOrEmpty(_manualStatValue))
+                {
+                    if (_manualStatType == 0 && int.TryParse(_manualStatValue, out int intVal))
+                    {
+                        SteamCore.Instance.Stats.SetStatInt(_manualStatName, intVal, true);
+                        AddOrUpdateCachedStat(_manualStatName, intVal);
+                    }
+                    else if (_manualStatType == 1 && float.TryParse(_manualStatValue, out float floatVal))
+                    {
+                        SteamCore.Instance.Stats.SetStatFloat(_manualStatName, floatVal, true);
+                        AddOrUpdateCachedStat(_manualStatName, floatVal);
+                    }
+                }
+            }
+            
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+
             EditorGUILayout.Space(5);
-            GUILayout.Label("Coming soon...", EditorStyles.centeredGreyMiniLabel);
+
+            // Toolbar
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.BeginHorizontal();
+
+            if (GUILayout.Button("Refresh All", GUILayout.Width(100)))
+            {
+                RefreshAllStats();
+            }
+
+            if (GUILayout.Button("Store Stats", GUILayout.Width(100)))
+            {
+                SteamCore.Instance.Stats.StoreStats();
+            }
+
+            if (GUILayout.Button("Reset All", GUILayout.Width(100)))
+            {
+                if (EditorUtility.DisplayDialog("Reset All Stats", 
+                    "Are you sure you want to reset all stats?\nThis only works in test mode.", "Yes", "Cancel"))
+                {
+                    SteamCore.Instance.Stats.ResetAllStats(false);
+                    _cachedStats.Clear();
+                }
+            }
+
+            GUILayout.FlexibleSpace();
+            GUILayout.Label($"{_cachedStats.Count} Stats", EditorStyles.boldLabel);
+
+            EditorGUILayout.EndHorizontal();
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(5);
+
+            // Cached stats list
+            if (_cachedStats.Count == 0)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox(
+                    "No stats loaded yet.\n\n" +
+                    "Enter a stat name above and click 'Get Value' to query it.\n" +
+                    "Stats will appear here once queried.",
+                    MessageType.Info
+                );
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
+            _statsScrollPosition = EditorGUILayout.BeginScrollView(_statsScrollPosition);
+
+            foreach (var stat in _cachedStats)
+            {
+                DrawStatItem(stat);
+            }
+
+            EditorGUILayout.EndScrollView();
+#endif
+        }
+
+#if !DISABLESTEAMWORKS
+        private void AddOrUpdateCachedStat(string name, int value)
+        {
+            var existing = _cachedStats.Find(s => s.Name == name);
+            if (existing != null)
+            {
+                existing.IntValue = value;
+                existing.Type = StatInfo.StatType.Int;
+            }
+            else
+            {
+                _cachedStats.Add(new StatInfo
+                {
+                    Name = name,
+                    DisplayName = name,
+                    Type = StatInfo.StatType.Int,
+                    IntValue = value
+                });
+            }
+            Repaint();
+        }
+
+        private void AddOrUpdateCachedStat(string name, float value)
+        {
+            var existing = _cachedStats.Find(s => s.Name == name);
+            if (existing != null)
+            {
+                existing.FloatValue = value;
+                existing.Type = StatInfo.StatType.Float;
+            }
+            else
+            {
+                _cachedStats.Add(new StatInfo
+                {
+                    Name = name,
+                    DisplayName = name,
+                    Type = StatInfo.StatType.Float,
+                    FloatValue = value
+                });
+            }
+            Repaint();
+        }
+
+        private void RefreshAllStats()
+        {
+            foreach (var stat in _cachedStats)
+            {
+                if (stat.Type == StatInfo.StatType.Int)
+                {
+                    stat.IntValue = SteamCore.Instance.Stats.GetStatInt(stat.Name);
+                }
+                else
+                {
+                    stat.FloatValue = SteamCore.Instance.Stats.GetStatFloat(stat.Name);
+                }
+            }
+            Repaint();
+        }
+
+        private void DrawStatItem(StatInfo stat)
+        {
+            EditorGUILayout.BeginVertical(_boxStyle);
+            EditorGUILayout.BeginHorizontal();
+
+            // Type indicator
+            var typeLabel = stat.Type == StatInfo.StatType.Int ? "[INT]" : "[FLOAT]";
+            GUILayout.Label(typeLabel, EditorStyles.miniLabel, GUILayout.Width(45));
+
+            // Name
+            EditorGUILayout.BeginVertical();
+            GUILayout.Label(stat.Name, EditorStyles.boldLabel);
+            EditorGUILayout.EndVertical();
+
+            // Value field
+            EditorGUILayout.BeginVertical(GUILayout.Width(120));
+            
+            if (stat.Type == StatInfo.StatType.Int)
+            {
+                int newValue = EditorGUILayout.IntField(stat.IntValue);
+                if (newValue != stat.IntValue)
+                {
+                    stat.IntValue = newValue;
+                    SteamCore.Instance.Stats.SetStatInt(stat.Name, newValue);
+                }
+            }
+            else
+            {
+                float newValue = EditorGUILayout.FloatField(stat.FloatValue);
+                if (!Mathf.Approximately(newValue, stat.FloatValue))
+                {
+                    stat.FloatValue = newValue;
+                    SteamCore.Instance.Stats.SetStatFloat(stat.Name, newValue);
+                }
+            }
+            
+            EditorGUILayout.EndVertical();
+
+            // Actions
+            if (GUILayout.Button("×", GUILayout.Width(25), GUILayout.Height(20)))
+            {
+                _cachedStats.Remove(stat);
+                Repaint();
+                GUIUtility.ExitGUI();
+            }
+
+            EditorGUILayout.EndHorizontal();
             EditorGUILayout.EndVertical();
         }
+#endif
+
+        #endregion
+
+        #region Other Tabs
 
         private void DrawInventoryTab()
         {
