@@ -430,7 +430,8 @@ namespace SteamToolkit.Editor
                 return;
             }
 
-            string scriptPath = Path.Combine(config.ContentBuilderPath, "scripts", $"app_{config.AppId}.vdf");
+            string contentBuilderPath = Path.GetFullPath(config.ContentBuilderPath);
+            string scriptPath = Path.Combine(contentBuilderPath, "scripts", $"app_{config.AppId}.vdf");
             
             if (!File.Exists(scriptPath))
             {
@@ -450,6 +451,11 @@ namespace SteamToolkit.Editor
             
             args.Append($" +run_app_build \"{scriptPath}\"");
             args.Append(" +quit");
+
+            onOutput?.Invoke($"Uploading to Steam...");
+            onOutput?.Invoke($"App ID: {config.AppId}");
+            onOutput?.Invoke($"VDF: {scriptPath}");
+            onOutput?.Invoke("");
 
             // Start process
             var startInfo = new ProcessStartInfo
@@ -471,7 +477,7 @@ namespace SteamToolkit.Editor
                 {
                     if (!string.IsNullOrEmpty(e.Data))
                     {
-                        onOutput?.Invoke(e.Data);
+                        EditorApplication.delayCall += () => onOutput?.Invoke(e.Data);
                     }
                 };
 
@@ -479,7 +485,7 @@ namespace SteamToolkit.Editor
                 {
                     if (!string.IsNullOrEmpty(e.Data))
                     {
-                        onOutput?.Invoke($"ERROR: {e.Data}");
+                        EditorApplication.delayCall += () => onOutput?.Invoke($"ERROR: {e.Data}");
                     }
                 };
 
@@ -495,8 +501,6 @@ namespace SteamToolkit.Editor
                 process.Start();
                 process.BeginOutputReadLine();
                 process.BeginErrorReadLine();
-
-                onOutput?.Invoke($"Started SteamCMD...");
             }
             catch (Exception ex)
             {

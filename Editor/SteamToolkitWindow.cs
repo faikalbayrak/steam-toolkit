@@ -3030,23 +3030,17 @@ namespace SteamToolkit.Editor
             EditorGUILayout.BeginHorizontal();
 
             GUI.enabled = !_buildDeployRunning;
-            if (GUILayout.Button("Upload (Background)", GUILayout.Height(35)))
+            if (GUILayout.Button("Upload to Steam", GUILayout.Height(35)))
             {
-                UploadToSteam(interactive: false);
-            }
-            if (GUILayout.Button("Upload (Interactive)", GUILayout.Height(35)))
-            {
-                UploadToSteam(interactive: true);
+                UploadToSteam();
             }
             GUI.enabled = true;
 
-            EditorGUILayout.EndHorizontal();
-
-            EditorGUILayout.BeginHorizontal();
-            if (GUILayout.Button("Open Steamworks", GUILayout.Height(25)))
+            if (GUILayout.Button("Open Steamworks", GUILayout.Height(35)))
             {
                 Application.OpenURL($"https://partner.steamgames.com/apps/builds/{_buildConfig.AppId}");
             }
+
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.EndVertical();
@@ -3180,7 +3174,7 @@ namespace SteamToolkit.Editor
             }
         }
 
-        private void UploadToSteam(bool interactive)
+        private void UploadToSteam()
         {
             // Validate
             if (string.IsNullOrEmpty(_buildConfig.Username))
@@ -3204,55 +3198,43 @@ namespace SteamToolkit.Editor
                 if (password == null) return; // Cancelled
             }
 
-            // Generate VDF if needed
+            // Generate VDF
             GenerateVdfFiles();
 
-            if (interactive)
-            {
-                // Interactive mode - opens visible SteamCMD window
-                _buildDeployStatus = "Opening SteamCMD in interactive mode...\n";
-                _buildDeployStatus += "If Steam Guard is required, enter the code in the SteamCMD window.\n";
-                _buildDeployStatus += "Watch the SteamCMD window for upload progress.\n";
+            // Run SteamCMD in background
+            _buildDeployRunning = true;
+            _buildDeployStatus = "Starting upload...\n";
 
-                SteamPipeBuilder.RunSteamCmdInteractive(_buildConfig, password,
-                    output =>
+            SteamPipeBuilder.RunSteamCmd(_buildConfig, password,
+                output =>
+                {
+                    _buildDeployStatus += output + "\n";
+                    EditorApplication.delayCall += Repaint;
+                },
+                exitCode =>
+                {
+                    _buildDeployRunning = false;
+                    
+                    if (exitCode == 0)
                     {
-                        _buildDeployStatus += output + "\n";
-                        EditorApplication.delayCall += Repaint;
+                        _buildDeployStatus += "\n✓ Upload successful!";
+                        _buildDeployStatus += "\nCheck Steamworks for your new build.";
                     }
-                );
-            }
-            else
-            {
-                // Background mode
-                _buildDeployRunning = true;
-                _buildDeployStatus = "Starting upload...\n";
-
-                SteamPipeBuilder.RunSteamCmd(_buildConfig, password,
-                    output =>
+                    else
                     {
-                        _buildDeployStatus += output + "\n";
-                        EditorApplication.delayCall += Repaint;
-                    },
-                    exitCode =>
-                    {
-                        _buildDeployRunning = false;
-                        _buildDeployStatus += $"\n=== Completed with exit code: {exitCode} ===";
+                        _buildDeployStatus += $"\n\n=== Failed with exit code: {exitCode} ===";
                         
-                        if (exitCode == 0)
+                        if (exitCode == 5 || exitCode == 6)
                         {
-                            _buildDeployStatus += "\n✓ Upload successful!";
+                            _buildDeployStatus += "\n\nSteam Guard or login issue.";
+                            _buildDeployStatus += "\nRun this in CMD to re-authenticate:";
+                            _buildDeployStatus += $"\n  steamcmd.exe +login {_buildConfig.Username} +quit";
                         }
-                        else if (exitCode == 6)
-                        {
-                            _buildDeployStatus += "\n\nExit code 6 = Steam Guard required.";
-                            _buildDeployStatus += "\nUse 'Upload (Interactive)' to enter Steam Guard code.";
-                        }
-                        
-                        EditorApplication.delayCall += Repaint;
                     }
-                );
-            }
+                    
+                    EditorApplication.delayCall += Repaint;
+                }
+            );
         }
 
         #endregion
