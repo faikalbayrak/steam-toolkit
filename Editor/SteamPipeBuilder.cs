@@ -370,15 +370,16 @@ namespace SteamToolkit.Editor
             sb.AppendLine($"\t\t\"recursive\" \"{(depot.Recursive ? "1" : "0")}\"");
             sb.AppendLine("\t}");
             
+            // FileExclusion - each pattern on its own line (not nested)
             if (depot.Exclude != null && depot.Exclude.Count > 0)
             {
-                sb.AppendLine("\t\"FileExclusion\"");
-                sb.AppendLine("\t{");
                 foreach (var exclude in depot.Exclude)
                 {
-                    sb.AppendLine($"\t\t\"{exclude}\"");
+                    if (!string.IsNullOrWhiteSpace(exclude))
+                    {
+                        sb.AppendLine($"\t\"FileExclusion\" \"{exclude}\"");
+                    }
                 }
-                sb.AppendLine("\t}");
             }
             
             sb.AppendLine("}");
@@ -516,7 +517,7 @@ namespace SteamToolkit.Editor
                 return;
             }
 
-            string scriptPath = Path.Combine(config.ContentBuilderPath, "scripts", $"app_{config.AppId}.vdf");
+            string scriptPath = Path.Combine(Path.GetFullPath(config.ContentBuilderPath), "scripts", $"app_{config.AppId}.vdf");
             
             if (!File.Exists(scriptPath))
             {
@@ -524,24 +525,23 @@ namespace SteamToolkit.Editor
                 return;
             }
 
-            // Build command arguments
+            // Build command - use cmd /K to keep window open after completion
             var args = new StringBuilder();
-            args.Append($"+login \"{config.Username}\"");
+            args.Append($"/K \"\"{config.SteamCmdPath}\" +login \"{config.Username}\"");
             
             if (!string.IsNullOrEmpty(password))
             {
                 args.Append($" \"{password}\"");
             }
             
-            args.Append($" +run_app_build \"{scriptPath}\"");
-            args.Append(" +quit");
+            args.Append($" +run_app_build \"{scriptPath}\" +quit\"");
 
-            // Start process in interactive mode
+            // Start process with cmd.exe to keep window open
             var startInfo = new ProcessStartInfo
             {
-                FileName = config.SteamCmdPath,
+                FileName = "cmd.exe",
                 Arguments = args.ToString(),
-                UseShellExecute = true,  // Opens visible window
+                UseShellExecute = true,
                 CreateNoWindow = false,
                 WorkingDirectory = Path.GetDirectoryName(config.SteamCmdPath)
             };
@@ -549,8 +549,9 @@ namespace SteamToolkit.Editor
             try
             {
                 Process.Start(startInfo);
-                onOutput?.Invoke("SteamCMD window opened. If Steam Guard is required, enter the code in the window.");
-                onOutput?.Invoke("Check the SteamCMD window for upload progress.");
+                onOutput?.Invoke("SteamCMD window opened.");
+                onOutput?.Invoke("Window will stay open after completion - check for errors.");
+                onOutput?.Invoke($"VDF: {scriptPath}");
             }
             catch (Exception ex)
             {
