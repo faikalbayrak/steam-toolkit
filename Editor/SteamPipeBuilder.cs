@@ -55,10 +55,21 @@ namespace SteamToolkit.Editor
                 installDir = GetDefaultSteamCmdDirectory();
             }
 
+            Debug.Log($"[SteamToolkit] Installing SteamCMD to: {installDir}");
+
             // Create directory
-            if (!Directory.Exists(installDir))
+            try
             {
-                Directory.CreateDirectory(installDir);
+                if (!Directory.Exists(installDir))
+                {
+                    Directory.CreateDirectory(installDir);
+                    Debug.Log($"[SteamToolkit] Created directory: {installDir}");
+                }
+            }
+            catch (Exception ex)
+            {
+                onComplete?.Invoke(false, $"Failed to create directory: {ex.Message}");
+                return;
             }
 
 #if UNITY_EDITOR_WIN
@@ -73,6 +84,8 @@ namespace SteamToolkit.Editor
 #endif
 
             string archivePath = Path.Combine(installDir, archiveName);
+            Debug.Log($"[SteamToolkit] Downloading from: {url}");
+            Debug.Log($"[SteamToolkit] Archive path: {archivePath}");
 
             // Start download
             var request = UnityWebRequest.Get(url);
@@ -84,7 +97,7 @@ namespace SteamToolkit.Editor
             {
                 if (!operation.isDone)
                 {
-                    onProgress?.Invoke(operation.progress, $"Downloading... {operation.progress * 100:F0}%");
+                    onProgress?.Invoke(operation.progress * 0.8f, $"Downloading... {operation.progress * 100:F0}%");
                     return;
                 }
 
@@ -92,38 +105,78 @@ namespace SteamToolkit.Editor
 
                 if (request.result != UnityWebRequest.Result.Success)
                 {
+                    Debug.LogError($"[SteamToolkit] Download failed: {request.error}");
                     onComplete?.Invoke(false, $"Download failed: {request.error}");
                     request.Dispose();
                     return;
                 }
 
+                Debug.Log($"[SteamToolkit] Download complete. Size: {request.downloadHandler.data.Length} bytes");
+
                 // Save archive
                 try
                 {
+                    onProgress?.Invoke(0.85f, "Saving archive...");
                     File.WriteAllBytes(archivePath, request.downloadHandler.data);
+                    Debug.Log($"[SteamToolkit] Archive saved: {archivePath}");
+
+                    if (!File.Exists(archivePath))
+                    {
+                        throw new Exception("Archive file was not created!");
+                    }
+
                     onProgress?.Invoke(0.9f, "Extracting...");
 
                     // Extract
 #if UNITY_EDITOR_WIN
-                    ExtractZip(archivePath, installDir);
+                    ExtractZipWindows(archivePath, installDir);
 #else
                     ExtractTarGz(archivePath, installDir);
 #endif
 
-                    // Cleanup
-                    File.Delete(archivePath);
+                    string exePath = GetSteamCmdExecutable(installDir);
+                    Debug.Log($"[SteamToolkit] Expected executable: {exePath}");
+
+                    if (!File.Exists(exePath))
+                    {
+                        // List what was extracted
+                        var files = Directory.GetFiles(installDir);
+                        Debug.LogError($"[SteamToolkit] Executable not found! Files in directory:");
+                        foreach (var f in files)
+                        {
+                            Debug.Log($"  - {f}");
+                        }
+                        throw new Exception($"SteamCMD executable not found at: {exePath}");
+                    }
+
+                    // Cleanup archive
+                    if (File.Exists(archivePath))
+                    {
+                        File.Delete(archivePath);
+                    }
 
                     // Run once to update
-                    string exePath = GetSteamCmdExecutable(installDir);
                     onProgress?.Invoke(0.95f, "Running first-time setup...");
+                    Debug.Log($"[SteamToolkit] Running first-time setup...");
                     
-                    RunSteamCmdFirstTime(exePath, () =>
+                    RunSteamCmdFirstTime(exePath, (success) =>
                     {
-                        onComplete?.Invoke(true, exePath);
+                        if (success)
+                        {
+                            Debug.Log($"[SteamToolkit] First-time setup complete!");
+                            onComplete?.Invoke(true, exePath);
+                        }
+                        else
+                        {
+                            // Even if first-time setup fails, the exe exists
+                            Debug.LogWarning($"[SteamToolkit] First-time setup had issues, but executable exists.");
+                            onComplete?.Invoke(true, exePath);
+                        }
                     });
                 }
                 catch (Exception ex)
                 {
+                    Debug.LogError($"[SteamToolkit] Extraction failed: {ex.Message}\n{ex.StackTrace}");
                     onComplete?.Invoke(false, $"Extraction failed: {ex.Message}");
                 }
 
@@ -131,24 +184,80 @@ namespace SteamToolkit.Editor
             }
         }
 
-        private static void ExtractZip(string zipPath, string destDir)
+        private static void ExtractZipWindows(string zipPath, string destDir)
         {
-            ZipFile.ExtractToDirectory(zipPath, destDir, true);
+            Debug.Log($"[SteamToolkit] Extracting ZIP: {zipPath} -> {destDir}");
+            
+            // Use PowerShell for extraction (more reliable than System.IO.Compression in Unity)
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "powershell.exe",
+                Arguments = $"-NoProfile -ExecutionPolicy Bypass -Command \"Expand-Archive -Path '{zipPath}' -DestinationPath '{destDir}' -Force\"",
+                UseShellExecute = false,
+                RedirectStandardOutput = true,
+                RedirectStandardError = true,
+                CreateNoWindow = true
+            };
+
+            try
+            {
+                var process = Process.Start(startInfo);
+                string output = process.StandardOutput.ReadToEnd();
+                string error = process.StandardError.ReadToEnd();
+                process.WaitForExit();
+
+                if (!string.IsNullOrEmpty(output))
+                    Debug.Log($"[SteamToolkit] PowerShell output: {output}");
+                if (!string.IsNullOrEmpty(error))
+                    Debug.LogWarning($"[SteamToolkit] PowerShell error: {error}");
+
+                Debug.Log($"[SteamToolkit] PowerShell exit code: {process.ExitCode}");
+
+                if (process.ExitCode != 0)
+                {
+                    throw new Exception($"PowerShell extraction failed with exit code {process.ExitCode}: {error}");
+                }
+            }
+            catch (Exception ex)
+            {
+                Debug.LogError($"[SteamToolkit] PowerShell extraction failed: {ex.Message}");
+                
+                // Fallback to System.IO.Compression
+                Debug.Log($"[SteamToolkit] Trying System.IO.Compression fallback...");
+                try
+                {
+                    ZipFile.ExtractToDirectory(zipPath, destDir, true);
+                    Debug.Log($"[SteamToolkit] System.IO.Compression extraction succeeded.");
+                }
+                catch (Exception ex2)
+                {
+                    throw new Exception($"All extraction methods failed. PowerShell: {ex.Message}, System.IO: {ex2.Message}");
+                }
+            }
         }
 
         private static void ExtractTarGz(string tarGzPath, string destDir)
         {
+            Debug.Log($"[SteamToolkit] Extracting tar.gz: {tarGzPath} -> {destDir}");
+            
             // For macOS/Linux, use system tar command
             var startInfo = new ProcessStartInfo
             {
                 FileName = "tar",
                 Arguments = $"-xzf \"{tarGzPath}\" -C \"{destDir}\"",
                 UseShellExecute = false,
+                RedirectStandardError = true,
                 CreateNoWindow = true
             };
 
             var process = Process.Start(startInfo);
+            string error = process.StandardError.ReadToEnd();
             process.WaitForExit();
+
+            if (process.ExitCode != 0)
+            {
+                throw new Exception($"tar extraction failed: {error}");
+            }
         }
 
         private static string GetSteamCmdExecutable(string installDir)
@@ -160,31 +269,40 @@ namespace SteamToolkit.Editor
 #endif
         }
 
-        private static void RunSteamCmdFirstTime(string exePath, Action onComplete)
+        private static void RunSteamCmdFirstTime(string exePath, Action<bool> onComplete)
         {
+            Debug.Log($"[SteamToolkit] Starting SteamCMD first run: {exePath}");
+            
             var startInfo = new ProcessStartInfo
             {
                 FileName = exePath,
                 Arguments = "+quit",
                 UseShellExecute = false,
                 CreateNoWindow = true,
-                RedirectStandardOutput = true
+                RedirectStandardOutput = true,
+                RedirectStandardError = true
             };
 
             try
             {
                 var process = new Process { StartInfo = startInfo };
                 process.EnableRaisingEvents = true;
+                
                 process.Exited += (s, e) =>
                 {
+                    Debug.Log($"[SteamToolkit] SteamCMD first run exit code: {process.ExitCode}");
                     process.Dispose();
-                    onComplete?.Invoke();
+                    
+                    // Call on main thread
+                    EditorApplication.delayCall += () => onComplete?.Invoke(process.ExitCode == 0 || process.ExitCode == 7);
                 };
+                
                 process.Start();
             }
-            catch
+            catch (Exception ex)
             {
-                onComplete?.Invoke();
+                Debug.LogError($"[SteamToolkit] Failed to run SteamCMD: {ex.Message}");
+                onComplete?.Invoke(false);
             }
         }
 
