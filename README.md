@@ -243,9 +243,13 @@ Debug.Log($"Path: {info.FolderPath}");
 
 Build & Deploy is configured through the Editor window (Steam Toolkit > Build & Deploy tab).
 
+**SteamCMD Setup:**
+- Click "Download SteamCMD" button to auto-install
+- Or manually download from [Valve's website](https://developer.valvesoftware.com/wiki/SteamCMD)
+
 **Setup:**
 1. Create a Build Config: `Create > Steam Toolkit > Build Config`
-2. Set SteamCMD path
+2. Download or set SteamCMD path
 3. Initialize ContentBuilder folder
 4. Configure depots for each platform
 5. Enter Steam credentials

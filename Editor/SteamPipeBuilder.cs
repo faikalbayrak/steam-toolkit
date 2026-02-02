@@ -2,9 +2,11 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Text;
 using UnityEngine;
 using UnityEditor;
+using UnityEngine.Networking;
 using Debug = UnityEngine.Debug;
 
 namespace SteamToolkit.Editor
@@ -14,6 +16,180 @@ namespace SteamToolkit.Editor
     /// </summary>
     public static class SteamPipeBuilder
     {
+        #region SteamCMD Download
+
+        private const string STEAMCMD_WINDOWS_URL = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd.zip";
+        private const string STEAMCMD_MACOS_URL = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_osx.tar.gz";
+        private const string STEAMCMD_LINUX_URL = "https://steamcdn-a.akamaihd.net/client/installer/steamcmd_linux.tar.gz";
+
+        /// <summary>
+        /// Check if SteamCMD is installed at the given path.
+        /// </summary>
+        public static bool IsSteamCmdInstalled(string path)
+        {
+            if (string.IsNullOrEmpty(path)) return false;
+            return File.Exists(path);
+        }
+
+        /// <summary>
+        /// Get the default SteamCMD installation directory.
+        /// </summary>
+        public static string GetDefaultSteamCmdDirectory()
+        {
+#if UNITY_EDITOR_WIN
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "steamcmd");
+#elif UNITY_EDITOR_OSX
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "steamcmd");
+#else
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "steamcmd");
+#endif
+        }
+
+        /// <summary>
+        /// Download and install SteamCMD.
+        /// </summary>
+        public static void DownloadSteamCmd(string installDir, Action<float, string> onProgress, Action<bool, string> onComplete)
+        {
+            if (string.IsNullOrEmpty(installDir))
+            {
+                installDir = GetDefaultSteamCmdDirectory();
+            }
+
+            // Create directory
+            if (!Directory.Exists(installDir))
+            {
+                Directory.CreateDirectory(installDir);
+            }
+
+#if UNITY_EDITOR_WIN
+            string url = STEAMCMD_WINDOWS_URL;
+            string archiveName = "steamcmd.zip";
+#elif UNITY_EDITOR_OSX
+            string url = STEAMCMD_MACOS_URL;
+            string archiveName = "steamcmd_osx.tar.gz";
+#else
+            string url = STEAMCMD_LINUX_URL;
+            string archiveName = "steamcmd_linux.tar.gz";
+#endif
+
+            string archivePath = Path.Combine(installDir, archiveName);
+
+            // Start download
+            var request = UnityWebRequest.Get(url);
+            var operation = request.SendWebRequest();
+
+            EditorApplication.update += CheckDownload;
+
+            void CheckDownload()
+            {
+                if (!operation.isDone)
+                {
+                    onProgress?.Invoke(operation.progress, $"Downloading... {operation.progress * 100:F0}%");
+                    return;
+                }
+
+                EditorApplication.update -= CheckDownload;
+
+                if (request.result != UnityWebRequest.Result.Success)
+                {
+                    onComplete?.Invoke(false, $"Download failed: {request.error}");
+                    request.Dispose();
+                    return;
+                }
+
+                // Save archive
+                try
+                {
+                    File.WriteAllBytes(archivePath, request.downloadHandler.data);
+                    onProgress?.Invoke(0.9f, "Extracting...");
+
+                    // Extract
+#if UNITY_EDITOR_WIN
+                    ExtractZip(archivePath, installDir);
+#else
+                    ExtractTarGz(archivePath, installDir);
+#endif
+
+                    // Cleanup
+                    File.Delete(archivePath);
+
+                    // Run once to update
+                    string exePath = GetSteamCmdExecutable(installDir);
+                    onProgress?.Invoke(0.95f, "Running first-time setup...");
+                    
+                    RunSteamCmdFirstTime(exePath, () =>
+                    {
+                        onComplete?.Invoke(true, exePath);
+                    });
+                }
+                catch (Exception ex)
+                {
+                    onComplete?.Invoke(false, $"Extraction failed: {ex.Message}");
+                }
+
+                request.Dispose();
+            }
+        }
+
+        private static void ExtractZip(string zipPath, string destDir)
+        {
+            ZipFile.ExtractToDirectory(zipPath, destDir, true);
+        }
+
+        private static void ExtractTarGz(string tarGzPath, string destDir)
+        {
+            // For macOS/Linux, use system tar command
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = "tar",
+                Arguments = $"-xzf \"{tarGzPath}\" -C \"{destDir}\"",
+                UseShellExecute = false,
+                CreateNoWindow = true
+            };
+
+            var process = Process.Start(startInfo);
+            process.WaitForExit();
+        }
+
+        private static string GetSteamCmdExecutable(string installDir)
+        {
+#if UNITY_EDITOR_WIN
+            return Path.Combine(installDir, "steamcmd.exe");
+#else
+            return Path.Combine(installDir, "steamcmd.sh");
+#endif
+        }
+
+        private static void RunSteamCmdFirstTime(string exePath, Action onComplete)
+        {
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = exePath,
+                Arguments = "+quit",
+                UseShellExecute = false,
+                CreateNoWindow = true,
+                RedirectStandardOutput = true
+            };
+
+            try
+            {
+                var process = new Process { StartInfo = startInfo };
+                process.EnableRaisingEvents = true;
+                process.Exited += (s, e) =>
+                {
+                    process.Dispose();
+                    onComplete?.Invoke();
+                };
+                process.Start();
+            }
+            catch
+            {
+                onComplete?.Invoke();
+            }
+        }
+
+        #endregion
+
         #region Public Methods
 
         /// <summary>

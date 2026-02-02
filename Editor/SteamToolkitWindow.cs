@@ -2844,11 +2844,19 @@ namespace SteamToolkit.Editor
             EditorGUILayout.BeginVertical(_boxStyle);
             GUILayout.Label("SteamCMD", EditorStyles.boldLabel);
 
+            // Check if installed
+            string steamCmdPath = _serializedBuildConfig.FindProperty("SteamCmdPath").stringValue;
+            bool isInstalled = SteamPipeBuilder.IsSteamCmdInstalled(steamCmdPath);
+
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.PropertyField(_serializedBuildConfig.FindProperty("SteamCmdPath"), new GUIContent("SteamCMD Path"));
             if (GUILayout.Button("...", GUILayout.Width(30)))
             {
+#if UNITY_EDITOR_WIN
                 var path = EditorUtility.OpenFilePanel("Select SteamCMD", "", "exe");
+#else
+                var path = EditorUtility.OpenFilePanel("Select SteamCMD", "", "sh");
+#endif
                 if (!string.IsNullOrEmpty(path))
                 {
                     _serializedBuildConfig.FindProperty("SteamCmdPath").stringValue = path;
@@ -2859,6 +2867,38 @@ namespace SteamToolkit.Editor
                 _serializedBuildConfig.FindProperty("SteamCmdPath").stringValue = SteamPipeBuilder.GetDefaultSteamCmdPath();
             }
             EditorGUILayout.EndHorizontal();
+
+            // Status & Download
+            if (_steamCmdDownloading)
+            {
+                EditorGUILayout.BeginHorizontal();
+                var rect = GUILayoutUtility.GetRect(GUIContent.none, GUIStyle.none, GUILayout.Height(18), GUILayout.ExpandWidth(true));
+                EditorGUI.ProgressBar(rect, _steamCmdDownloadProgress, _steamCmdDownloadStatus);
+                EditorGUILayout.EndHorizontal();
+            }
+            else if (!isInstalled)
+            {
+                EditorGUILayout.BeginHorizontal();
+                EditorGUILayout.HelpBox("SteamCMD not found. Download or set the correct path.", MessageType.Warning);
+                EditorGUILayout.EndHorizontal();
+
+                EditorGUILayout.BeginHorizontal();
+                if (GUILayout.Button("Download SteamCMD", GUILayout.Height(25)))
+                {
+                    DownloadSteamCmd();
+                }
+                if (GUILayout.Button("Manual Download", GUILayout.Height(25)))
+                {
+                    Application.OpenURL("https://developer.valvesoftware.com/wiki/SteamCMD#Downloading_SteamCMD");
+                }
+                EditorGUILayout.EndHorizontal();
+            }
+            else
+            {
+                EditorGUILayout.HelpBox("✓ SteamCMD found", MessageType.Info);
+            }
+
+            EditorGUILayout.Space(5);
 
             EditorGUILayout.BeginHorizontal();
             EditorGUILayout.PropertyField(_serializedBuildConfig.FindProperty("ContentBuilderPath"), new GUIContent("ContentBuilder"));
@@ -3033,6 +3073,48 @@ namespace SteamToolkit.Editor
         private string _buildDeployStatus = "";
         private bool _buildDeployRunning;
         private Vector2 _buildDeployScrollPosition;
+
+        // SteamCMD download
+        private bool _steamCmdDownloading;
+        private float _steamCmdDownloadProgress;
+        private string _steamCmdDownloadStatus = "";
+
+        private void DownloadSteamCmd()
+        {
+            string installDir = SteamPipeBuilder.GetDefaultSteamCmdDirectory();
+
+            _steamCmdDownloading = true;
+            _steamCmdDownloadProgress = 0f;
+            _steamCmdDownloadStatus = "Starting download...";
+
+            SteamPipeBuilder.DownloadSteamCmd(installDir,
+                (progress, status) =>
+                {
+                    _steamCmdDownloadProgress = progress;
+                    _steamCmdDownloadStatus = status;
+                    Repaint();
+                },
+                (success, result) =>
+                {
+                    _steamCmdDownloading = false;
+
+                    if (success)
+                    {
+                        _serializedBuildConfig.FindProperty("SteamCmdPath").stringValue = result;
+                        _serializedBuildConfig.ApplyModifiedProperties();
+                        _buildDeployStatus = $"SteamCMD installed successfully!\nPath: {result}";
+                        Debug.Log($"[SteamToolkit] SteamCMD installed: {result}");
+                    }
+                    else
+                    {
+                        _buildDeployStatus = $"SteamCMD installation failed: {result}";
+                        Debug.LogError($"[SteamToolkit] SteamCMD installation failed: {result}");
+                    }
+
+                    Repaint();
+                }
+            );
+        }
 
         private void CreateBuildConfig()
         {
