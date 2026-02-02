@@ -1,3 +1,4 @@
+#if UNITY_EDITOR
 using UnityEngine;
 using UnityEditor;
 
@@ -102,3 +103,4 @@ namespace SteamToolkit.Editor
         }
     }
 }
+#endif
