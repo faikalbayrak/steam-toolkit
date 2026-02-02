@@ -290,11 +290,20 @@ namespace SteamToolkit.Editor
                 
                 process.Exited += (s, e) =>
                 {
-                    Debug.Log($"[SteamToolkit] SteamCMD first run exit code: {process.ExitCode}");
+                    // Capture exit code BEFORE dispose
+                    int exitCode = -1;
+                    try
+                    {
+                        exitCode = process.ExitCode;
+                    }
+                    catch { }
+                    
+                    Debug.Log($"[SteamToolkit] SteamCMD first run exit code: {exitCode}");
                     process.Dispose();
                     
                     // Call on main thread
-                    EditorApplication.delayCall += () => onComplete?.Invoke(process.ExitCode == 0 || process.ExitCode == 7);
+                    bool success = exitCode == 0 || exitCode == 7 || exitCode == -1;
+                    EditorApplication.delayCall += () => onComplete?.Invoke(success);
                 };
                 
                 process.Start();
