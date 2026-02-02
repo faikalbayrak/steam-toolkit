@@ -480,8 +480,10 @@ namespace SteamToolkit.Editor
                 process.EnableRaisingEvents = true;
                 process.Exited += (sender, e) =>
                 {
-                    onComplete?.Invoke(process.ExitCode);
+                    int exitCode = 0;
+                    try { exitCode = process.ExitCode; } catch { }
                     process.Dispose();
+                    EditorApplication.delayCall += () => onComplete?.Invoke(exitCode);
                 };
 
                 process.Start();
@@ -494,6 +496,60 @@ namespace SteamToolkit.Editor
             {
                 onOutput?.Invoke($"ERROR: Failed to start SteamCMD: {ex.Message}");
                 onComplete?.Invoke(-1);
+            }
+        }
+
+        /// <summary>
+        /// Run SteamCMD in interactive mode (visible window).
+        /// Use this for first-time login or when Steam Guard is required.
+        /// </summary>
+        public static void RunSteamCmdInteractive(SteamBuildConfig config, string password, Action<string> onOutput)
+        {
+            if (string.IsNullOrEmpty(config.SteamCmdPath) || !File.Exists(config.SteamCmdPath))
+            {
+                onOutput?.Invoke("ERROR: SteamCMD path not set or file not found.");
+                return;
+            }
+
+            string scriptPath = Path.Combine(config.ContentBuilderPath, "scripts", $"app_{config.AppId}.vdf");
+            
+            if (!File.Exists(scriptPath))
+            {
+                onOutput?.Invoke("ERROR: App VDF file not found. Generate VDF files first.");
+                return;
+            }
+
+            // Build command arguments
+            var args = new StringBuilder();
+            args.Append($"+login \"{config.Username}\"");
+            
+            if (!string.IsNullOrEmpty(password))
+            {
+                args.Append($" \"{password}\"");
+            }
+            
+            args.Append($" +run_app_build \"{scriptPath}\"");
+            args.Append(" +quit");
+
+            // Start process in interactive mode
+            var startInfo = new ProcessStartInfo
+            {
+                FileName = config.SteamCmdPath,
+                Arguments = args.ToString(),
+                UseShellExecute = true,  // Opens visible window
+                CreateNoWindow = false,
+                WorkingDirectory = Path.GetDirectoryName(config.SteamCmdPath)
+            };
+
+            try
+            {
+                Process.Start(startInfo);
+                onOutput?.Invoke("SteamCMD window opened. If Steam Guard is required, enter the code in the window.");
+                onOutput?.Invoke("Check the SteamCMD window for upload progress.");
+            }
+            catch (Exception ex)
+            {
+                onOutput?.Invoke($"ERROR: Failed to start SteamCMD: {ex.Message}");
             }
         }
 

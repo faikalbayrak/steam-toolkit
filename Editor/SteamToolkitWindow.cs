@@ -3030,39 +3030,45 @@ namespace SteamToolkit.Editor
             EditorGUILayout.BeginHorizontal();
 
             GUI.enabled = !_buildDeployRunning;
-            if (GUILayout.Button("Upload to Steam", GUILayout.Height(35)))
+            if (GUILayout.Button("Upload (Background)", GUILayout.Height(35)))
             {
-                UploadToSteam();
+                UploadToSteam(interactive: false);
+            }
+            if (GUILayout.Button("Upload (Interactive)", GUILayout.Height(35)))
+            {
+                UploadToSteam(interactive: true);
             }
             GUI.enabled = true;
 
-            if (GUILayout.Button("Open Steamworks", GUILayout.Height(35)))
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.BeginHorizontal();
+            if (GUILayout.Button("Open Steamworks", GUILayout.Height(25)))
             {
                 Application.OpenURL($"https://partner.steamgames.com/apps/builds/{_buildConfig.AppId}");
             }
-
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.EndVertical();
 
-            // Status / Output
+            // Status / Output - always show
+            EditorGUILayout.Space(5);
+            EditorGUILayout.BeginVertical(_boxStyle);
+            GUILayout.Label("Status", EditorStyles.boldLabel);
+            
+            _buildDeployScrollPosition = EditorGUILayout.BeginScrollView(_buildDeployScrollPosition, GUILayout.Height(150));
+            EditorGUILayout.TextArea(string.IsNullOrEmpty(_buildDeployStatus) ? "Ready." : _buildDeployStatus, GUILayout.ExpandHeight(true));
+            EditorGUILayout.EndScrollView();
+
             if (!string.IsNullOrEmpty(_buildDeployStatus))
             {
-                EditorGUILayout.Space(5);
-                EditorGUILayout.BeginVertical(_boxStyle);
-                GUILayout.Label("Status", EditorStyles.boldLabel);
-                
-                _buildDeployScrollPosition = EditorGUILayout.BeginScrollView(_buildDeployScrollPosition, GUILayout.Height(150));
-                EditorGUILayout.TextArea(_buildDeployStatus, GUILayout.ExpandHeight(true));
-                EditorGUILayout.EndScrollView();
-
                 if (GUILayout.Button("Clear", GUILayout.Height(20)))
                 {
                     _buildDeployStatus = "";
                 }
-
-                EditorGUILayout.EndVertical();
             }
+
+            EditorGUILayout.EndVertical();
         }
 
         #region Build Deploy Fields
@@ -3093,7 +3099,7 @@ namespace SteamToolkit.Editor
                 {
                     _steamCmdDownloadProgress = progress;
                     _steamCmdDownloadStatus = status;
-                    Repaint();
+                    EditorApplication.delayCall += Repaint;
                 },
                 (success, result) =>
                 {
@@ -3112,7 +3118,7 @@ namespace SteamToolkit.Editor
                         Debug.LogError($"[SteamToolkit] SteamCMD installation failed: {result}");
                     }
 
-                    Repaint();
+                    EditorApplication.delayCall += Repaint;
                 }
             );
         }
@@ -3174,7 +3180,7 @@ namespace SteamToolkit.Editor
             }
         }
 
-        private void UploadToSteam()
+        private void UploadToSteam(bool interactive)
         {
             // Validate
             if (string.IsNullOrEmpty(_buildConfig.Username))
@@ -3201,23 +3207,52 @@ namespace SteamToolkit.Editor
             // Generate VDF if needed
             GenerateVdfFiles();
 
-            // Run SteamCMD
-            _buildDeployRunning = true;
-            _buildDeployStatus = "Starting upload...\n";
+            if (interactive)
+            {
+                // Interactive mode - opens visible SteamCMD window
+                _buildDeployStatus = "Opening SteamCMD in interactive mode...\n";
+                _buildDeployStatus += "If Steam Guard is required, enter the code in the SteamCMD window.\n";
+                _buildDeployStatus += "Watch the SteamCMD window for upload progress.\n";
 
-            SteamPipeBuilder.RunSteamCmd(_buildConfig, password,
-                output =>
-                {
-                    _buildDeployStatus += output + "\n";
-                    Repaint();
-                },
-                exitCode =>
-                {
-                    _buildDeployRunning = false;
-                    _buildDeployStatus += $"\n=== Completed with exit code: {exitCode} ===";
-                    Repaint();
-                }
-            );
+                SteamPipeBuilder.RunSteamCmdInteractive(_buildConfig, password,
+                    output =>
+                    {
+                        _buildDeployStatus += output + "\n";
+                        EditorApplication.delayCall += Repaint;
+                    }
+                );
+            }
+            else
+            {
+                // Background mode
+                _buildDeployRunning = true;
+                _buildDeployStatus = "Starting upload...\n";
+
+                SteamPipeBuilder.RunSteamCmd(_buildConfig, password,
+                    output =>
+                    {
+                        _buildDeployStatus += output + "\n";
+                        EditorApplication.delayCall += Repaint;
+                    },
+                    exitCode =>
+                    {
+                        _buildDeployRunning = false;
+                        _buildDeployStatus += $"\n=== Completed with exit code: {exitCode} ===";
+                        
+                        if (exitCode == 0)
+                        {
+                            _buildDeployStatus += "\n✓ Upload successful!";
+                        }
+                        else if (exitCode == 6)
+                        {
+                            _buildDeployStatus += "\n\nExit code 6 = Steam Guard required.";
+                            _buildDeployStatus += "\nUse 'Upload (Interactive)' to enter Steam Guard code.";
+                        }
+                        
+                        EditorApplication.delayCall += Repaint;
+                    }
+                );
+            }
         }
 
         #endregion
