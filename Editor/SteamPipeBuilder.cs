@@ -356,10 +356,13 @@ namespace SteamToolkit.Editor
         {
             var sb = new StringBuilder();
             
+            // Normalize path - use forward slashes for VDF
+            string normalizedPath = Path.GetFullPath(contentRoot).Replace("\\", "/");
+            
             sb.AppendLine("\"DepotBuildConfig\"");
             sb.AppendLine("{");
             sb.AppendLine($"\t\"DepotID\" \"{depot.DepotId}\"");
-            sb.AppendLine($"\t\"contentroot\" \"{contentRoot.Replace("\\", "\\\\")}\"");
+            sb.AppendLine($"\t\"contentroot\" \"{normalizedPath}\"");
             sb.AppendLine("\t\"FileMapping\"");
             sb.AppendLine("\t{");
             sb.AppendLine($"\t\t\"LocalPath\" \"{depot.LocalPath}\"");
@@ -388,7 +391,9 @@ namespace SteamToolkit.Editor
         /// </summary>
         public static void WriteVdfFiles(SteamBuildConfig config, string description, string branch)
         {
-            string scriptsPath = Path.Combine(config.ContentBuilderPath, "scripts");
+            // Normalize ContentBuilder path
+            string contentBuilderPath = Path.GetFullPath(config.ContentBuilderPath);
+            string scriptsPath = Path.Combine(contentBuilderPath, "scripts");
             
             if (!Directory.Exists(scriptsPath))
             {
@@ -404,7 +409,7 @@ namespace SteamToolkit.Editor
             // Write depot VDFs
             foreach (var depot in config.Depots)
             {
-                string contentRoot = Path.Combine(config.ContentBuilderPath, "content", depot.ContentRoot);
+                string contentRoot = Path.Combine(contentBuilderPath, "content", depot.ContentRoot);
                 string depotVdf = GenerateDepotVdf(depot, contentRoot);
                 string depotVdfPath = Path.Combine(scriptsPath, $"depot_{depot.DepotId}.vdf");
                 File.WriteAllText(depotVdfPath, depotVdf);
@@ -620,7 +625,9 @@ namespace SteamToolkit.Editor
         /// </summary>
         public static string GetDefaultContentBuilderPath()
         {
-            return Path.Combine(Application.dataPath, "..", "SteamContentBuilder");
+            // Get project root (parent of Assets folder) and normalize the path
+            string projectRoot = Path.GetFullPath(Path.Combine(Application.dataPath, ".."));
+            return Path.Combine(projectRoot, "SteamContentBuilder");
         }
 
         /// <summary>
@@ -628,6 +635,9 @@ namespace SteamToolkit.Editor
         /// </summary>
         public static void InitializeContentBuilder(string path)
         {
+            // Normalize the path
+            path = Path.GetFullPath(path);
+            
             var folders = new[]
             {
                 path,
