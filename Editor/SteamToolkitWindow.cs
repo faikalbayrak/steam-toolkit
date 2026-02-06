@@ -3524,13 +3524,8 @@ namespace SteamToolkit.Editor
         {
             var config = ScriptableObject.CreateInstance<SteamBuildConfig>();
 
-            // Set defaults from main config
-            if (_config != null)
-            {
-                config.AppId = _config.AppId;
-                config.DefaultDepotId = _config.AppId + 1;
-            }
-
+            // SteamBuildConfig gets AppId and Depots from SteamConfig automatically
+            // Just set the build-specific settings here
             config.SteamCmdPath = SteamPipeBuilder.GetDefaultSteamCmdPath();
             config.ContentBuilderPath = SteamPipeBuilder.GetDefaultContentBuilderPath();
 
@@ -3738,8 +3733,29 @@ namespace SteamToolkit.Editor
         private void ResetConfigToDefaults()
         {
             Undo.RecordObject(_config, "Reset Steam Config");
-            _config.AppId = 480;
-            _config.GameName = "My Game";
+            
+            // Reset apps list with default app
+            _config.Apps.Clear();
+            _config.Apps.Add(new SteamAppEntry
+            {
+                Name = "My Game",
+                Type = SteamAppType.Main,
+                AppId = 480,
+                DefaultBranch = "default",
+                Branches = new List<string> { "default", "beta", "playtest" },
+                Depots = new List<DepotConfig>
+                {
+                    new DepotConfig
+                    {
+                        Name = "Windows",
+                        DepotId = 481,
+                        ContentRoot = "Build/Windows"
+                    }
+                }
+            });
+            _config.ActiveAppIndex = 0;
+            
+            // Reset other settings
             _config.AutoInitialize = true;
             _config.AllowWithoutSteam = true;
             _config.CheckRestartApp = true;
