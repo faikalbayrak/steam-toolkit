@@ -270,14 +270,81 @@ namespace SteamToolkit.Editor
 
             _serializedConfig.Update();
 
+            // Active App Selector
             EditorGUILayout.BeginVertical(_boxStyle);
+            GUILayout.Label("Active App", EditorStyles.boldLabel);
 
-            EditorGUILayout.PropertyField(_serializedConfig.FindProperty("AppId"), new GUIContent("App ID"));
-            EditorGUILayout.PropertyField(_serializedConfig.FindProperty("GameName"), new GUIContent("Game Name"));
+            if (_config.Apps == null || _config.Apps.Count == 0)
+            {
+                EditorGUILayout.HelpBox("No apps configured. Add your first app below.", MessageType.Warning);
+            }
+            else
+            {
+                // Dropdown for active app
+                string[] appNames = new string[_config.Apps.Count];
+                for (int i = 0; i < _config.Apps.Count; i++)
+                {
+                    var app = _config.Apps[i];
+                    appNames[i] = $"{app.Name} ({app.Type}) - {app.AppId}";
+                }
+
+                EditorGUI.BeginChangeCheck();
+                int newIndex = EditorGUILayout.Popup("Select App", _config.ActiveAppIndex, appNames);
+                if (EditorGUI.EndChangeCheck())
+                {
+                    Undo.RecordObject(_config, "Change Active App");
+                    _config.ActiveAppIndex = newIndex;
+                    EditorUtility.SetDirty(_config);
+                }
+
+                // Active app info
+                var activeApp = _config.ActiveApp;
+                if (activeApp != null)
+                {
+                    EditorGUILayout.Space(5);
+                    EditorGUILayout.LabelField("App ID", activeApp.AppId.ToString());
+                    EditorGUILayout.LabelField("Type", activeApp.Type.ToString());
+                    EditorGUILayout.LabelField("Default Branch", activeApp.DefaultBranch);
+                    EditorGUILayout.LabelField("Depots", activeApp.Depots.Count.ToString());
+                }
+            }
+
+            EditorGUILayout.EndVertical();
 
             EditorGUILayout.Space(10);
 
+            // App List
+            EditorGUILayout.BeginVertical(_boxStyle);
+            
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label("All Apps", EditorStyles.boldLabel);
+            GUILayout.FlexibleSpace();
+            if (GUILayout.Button("+", GUILayout.Width(25), GUILayout.Height(20)))
+            {
+                AddNewApp();
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space(5);
+
+            // Draw each app
+            _appListScrollPosition = EditorGUILayout.BeginScrollView(_appListScrollPosition, GUILayout.Height(300));
+            
+            for (int i = 0; i < _config.Apps.Count; i++)
+            {
+                DrawAppEntry(i);
+            }
+
+            EditorGUILayout.EndScrollView();
+            EditorGUILayout.EndVertical();
+
+            EditorGUILayout.Space(10);
+
+            // Quick Links
+            EditorGUILayout.BeginVertical(_boxStyle);
             GUILayout.Label("Quick Links", EditorStyles.boldLabel);
+            
+            GUI.enabled = _config.ActiveApp != null;
             
             EditorGUILayout.BeginHorizontal();
             if (GUILayout.Button("Steamworks Partner", GUILayout.Height(25)))
@@ -299,18 +366,198 @@ namespace SteamToolkit.Editor
             {
                 Application.OpenURL($"https://partner.steamgames.com/apps/stats/{_config.AppId}");
             }
-            if (GUILayout.Button("Leaderboards", GUILayout.Height(25)))
+            if (GUILayout.Button("Builds", GUILayout.Height(25)))
             {
-                Application.OpenURL($"https://partner.steamgames.com/apps/leaderboards/{_config.AppId}");
+                Application.OpenURL($"https://partner.steamgames.com/apps/builds/{_config.AppId}");
             }
             EditorGUILayout.EndHorizontal();
 
+            GUI.enabled = true;
             EditorGUILayout.EndVertical();
 
             EditorGUILayout.Space(10);
             DrawSteamStatus();
 
             _serializedConfig.ApplyModifiedProperties();
+        }
+
+        private Vector2 _appListScrollPosition;
+        private int _expandedAppIndex = -1;
+
+        private void DrawAppEntry(int index)
+        {
+            var app = _config.Apps[index];
+            bool isActive = index == _config.ActiveAppIndex;
+            bool isExpanded = _expandedAppIndex == index;
+
+            // Header
+            EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+            
+            EditorGUILayout.BeginHorizontal();
+            
+            // Active indicator
+            if (isActive)
+            {
+                GUILayout.Label("●", GUILayout.Width(15));
+            }
+            else
+            {
+                GUILayout.Label(" ", GUILayout.Width(15));
+            }
+
+            // Expand/Collapse
+            if (GUILayout.Button(isExpanded ? "▼" : "►", GUILayout.Width(25)))
+            {
+                _expandedAppIndex = isExpanded ? -1 : index;
+            }
+
+            // App name and type
+            GUILayout.Label($"{app.Name} ({app.Type})", EditorStyles.boldLabel, GUILayout.Width(200));
+            GUILayout.Label($"App: {app.AppId}", GUILayout.Width(100));
+            
+            GUILayout.FlexibleSpace();
+
+            // Set Active button
+            GUI.enabled = !isActive;
+            if (GUILayout.Button("Set Active", GUILayout.Width(70)))
+            {
+                Undo.RecordObject(_config, "Set Active App");
+                _config.ActiveAppIndex = index;
+                EditorUtility.SetDirty(_config);
+            }
+            GUI.enabled = true;
+
+            // Delete button
+            GUI.enabled = _config.Apps.Count > 1;
+            if (GUILayout.Button("✕", GUILayout.Width(25)))
+            {
+                if (EditorUtility.DisplayDialog("Delete App", 
+                    $"Are you sure you want to delete '{app.Name}'?", "Delete", "Cancel"))
+                {
+                    Undo.RecordObject(_config, "Delete App");
+                    _config.Apps.RemoveAt(index);
+                    if (_config.ActiveAppIndex >= _config.Apps.Count)
+                        _config.ActiveAppIndex = _config.Apps.Count - 1;
+                    if (_expandedAppIndex == index)
+                        _expandedAppIndex = -1;
+                    EditorUtility.SetDirty(_config);
+                }
+            }
+            GUI.enabled = true;
+
+            EditorGUILayout.EndHorizontal();
+
+            // Expanded details
+            if (isExpanded)
+            {
+                EditorGUILayout.Space(5);
+                EditorGUI.indentLevel++;
+
+                // Basic info
+                EditorGUI.BeginChangeCheck();
+                
+                app.Name = EditorGUILayout.TextField("Name", app.Name);
+                app.Type = (SteamAppType)EditorGUILayout.EnumPopup("Type", app.Type);
+                app.AppId = (uint)EditorGUILayout.IntField("App ID", (int)app.AppId);
+                app.DefaultBranch = EditorGUILayout.TextField("Default Branch", app.DefaultBranch);
+
+                // Branches
+                EditorGUILayout.Space(5);
+                EditorGUILayout.LabelField("Branches", EditorStyles.boldLabel);
+                
+                for (int b = 0; b < app.Branches.Count; b++)
+                {
+                    EditorGUILayout.BeginHorizontal();
+                    app.Branches[b] = EditorGUILayout.TextField(app.Branches[b]);
+                    if (GUILayout.Button("-", GUILayout.Width(25)) && app.Branches.Count > 1)
+                    {
+                        app.Branches.RemoveAt(b);
+                        break;
+                    }
+                    EditorGUILayout.EndHorizontal();
+                }
+                
+                if (GUILayout.Button("+ Add Branch", GUILayout.Width(100)))
+                {
+                    app.Branches.Add("new-branch");
+                }
+
+                // Depots
+                EditorGUILayout.Space(5);
+                EditorGUILayout.LabelField("Depots", EditorStyles.boldLabel);
+                
+                for (int d = 0; d < app.Depots.Count; d++)
+                {
+                    var depot = app.Depots[d];
+                    EditorGUILayout.BeginVertical(EditorStyles.helpBox);
+                    
+                    EditorGUILayout.BeginHorizontal();
+                    depot.Name = EditorGUILayout.TextField("Name", depot.Name);
+                    if (GUILayout.Button("-", GUILayout.Width(25)) && app.Depots.Count > 1)
+                    {
+                        app.Depots.RemoveAt(d);
+                        break;
+                    }
+                    EditorGUILayout.EndHorizontal();
+                    
+                    depot.DepotId = (uint)EditorGUILayout.IntField("Depot ID", (int)depot.DepotId);
+                    depot.ContentRoot = EditorGUILayout.TextField("Content Root", depot.ContentRoot);
+                    
+                    EditorGUILayout.EndVertical();
+                }
+                
+                if (GUILayout.Button("+ Add Depot", GUILayout.Width(100)))
+                {
+                    app.Depots.Add(new DepotConfig
+                    {
+                        Name = "New Depot",
+                        DepotId = app.AppId + (uint)app.Depots.Count + 1,
+                        ContentRoot = "Build/Windows"
+                    });
+                }
+
+                // Notes
+                EditorGUILayout.Space(5);
+                EditorGUILayout.LabelField("Notes", EditorStyles.boldLabel);
+                app.Notes = EditorGUILayout.TextArea(app.Notes, GUILayout.Height(50));
+
+                if (EditorGUI.EndChangeCheck())
+                {
+                    EditorUtility.SetDirty(_config);
+                }
+
+                EditorGUI.indentLevel--;
+            }
+
+            EditorGUILayout.EndVertical();
+            EditorGUILayout.Space(2);
+        }
+
+        private void AddNewApp()
+        {
+            Undo.RecordObject(_config, "Add New App");
+            
+            var newApp = new SteamAppEntry
+            {
+                Name = "New App",
+                Type = SteamAppType.Main,
+                AppId = 480,
+                DefaultBranch = "default",
+                Branches = new List<string> { "default", "beta", "playtest" },
+                Depots = new List<DepotConfig>
+                {
+                    new DepotConfig
+                    {
+                        Name = "Windows",
+                        DepotId = 481,
+                        ContentRoot = "Build/Windows"
+                    }
+                }
+            };
+            
+            _config.Apps.Add(newApp);
+            _expandedAppIndex = _config.Apps.Count - 1;
+            EditorUtility.SetDirty(_config);
         }
 
         private void DrawSteamStatus()
@@ -2797,6 +3044,24 @@ namespace SteamToolkit.Editor
             GUILayout.Label("Build & Deploy", EditorStyles.boldLabel);
             EditorGUILayout.Space(5);
 
+            // Check SteamConfig
+            if (_config == null || _config.ActiveApp == null)
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox(
+                    "No Steam App configured!\n\n" +
+                    "Go to 'App Info' tab to create and configure your Steam apps.",
+                    MessageType.Warning
+                );
+
+                if (GUILayout.Button("Go to App Info", GUILayout.Height(30)))
+                {
+                    _currentTab = Tab.AppInfo;
+                }
+                EditorGUILayout.EndVertical();
+                return;
+            }
+
             // Find or create build config
             if (_buildConfig == null)
             {
@@ -2840,6 +3105,17 @@ namespace SteamToolkit.Editor
             }
 
             _serializedBuildConfig.Update();
+
+            // Active App Info (from SteamConfig)
+            var activeApp = _config.ActiveApp;
+            DrawActiveAppInfo(activeApp);
+
+            EditorGUILayout.Space(5);
+
+            // VDF Mismatch Warning
+            CheckVdfMismatch(activeApp);
+
+            EditorGUILayout.Space(5);
 
             // SteamCMD Settings
             EditorGUILayout.BeginVertical(_boxStyle);
@@ -2945,39 +3221,12 @@ namespace SteamToolkit.Editor
 
             EditorGUILayout.Space(5);
 
-            // App Settings
+            // Build Settings
             EditorGUILayout.BeginVertical(_boxStyle);
-            GUILayout.Label("App Configuration", EditorStyles.boldLabel);
+            GUILayout.Label("Build Settings", EditorStyles.boldLabel);
 
-            EditorGUILayout.PropertyField(_serializedBuildConfig.FindProperty("AppId"));
-            EditorGUILayout.PropertyField(_serializedBuildConfig.FindProperty("DefaultDepotId"));
-            EditorGUILayout.PropertyField(_serializedBuildConfig.FindProperty("DefaultBranch"));
             EditorGUILayout.PropertyField(_serializedBuildConfig.FindProperty("SetLiveOnUpload"));
             EditorGUILayout.PropertyField(_serializedBuildConfig.FindProperty("PreviewOnly"));
-
-            EditorGUILayout.EndVertical();
-
-            EditorGUILayout.Space(5);
-
-            // Depots
-            EditorGUILayout.BeginVertical(_boxStyle);
-            GUILayout.Label("Depots", EditorStyles.boldLabel);
-
-            EditorGUILayout.PropertyField(_serializedBuildConfig.FindProperty("Depots"), true);
-
-            if (_buildConfig.Depots.Count == 0)
-            {
-                if (GUILayout.Button("Add Default Depot"))
-                {
-                    _buildConfig.Depots.Add(new DepotConfig
-                    {
-                        Name = "Windows",
-                        DepotId = _buildConfig.DefaultDepotId,
-                        ContentRoot = "Build/Windows"
-                    });
-                    EditorUtility.SetDirty(_buildConfig);
-                }
-            }
 
             EditorGUILayout.EndVertical();
 
@@ -3002,10 +3251,15 @@ namespace SteamToolkit.Editor
             // Branch
             EditorGUILayout.BeginHorizontal();
             GUILayout.Label("Branch:", GUILayout.Width(80));
-            int branchIndex = _buildConfig.Branches.IndexOf(_buildBranch);
+            var branches = activeApp.Branches;
+            if (branches == null || branches.Count == 0)
+            {
+                branches = new List<string> { "default" };
+            }
+            int branchIndex = branches.IndexOf(_buildBranch);
             if (branchIndex < 0) branchIndex = 0;
-            branchIndex = EditorGUILayout.Popup(branchIndex, _buildConfig.Branches.ToArray());
-            _buildBranch = _buildConfig.Branches[branchIndex];
+            branchIndex = EditorGUILayout.Popup(branchIndex, branches.ToArray());
+            _buildBranch = branches[branchIndex];
             EditorGUILayout.EndHorizontal();
 
             EditorGUILayout.Space(5);
@@ -3038,7 +3292,7 @@ namespace SteamToolkit.Editor
 
             if (GUILayout.Button("Open Steamworks", GUILayout.Height(35)))
             {
-                Application.OpenURL($"https://partner.steamgames.com/apps/builds/{_buildConfig.AppId}");
+                Application.OpenURL($"https://partner.steamgames.com/apps/builds/{activeApp.AppId}");
             }
 
             EditorGUILayout.EndHorizontal();
@@ -3063,6 +3317,155 @@ namespace SteamToolkit.Editor
             }
 
             EditorGUILayout.EndVertical();
+        }
+
+        private void DrawActiveAppInfo(SteamAppEntry activeApp)
+        {
+            EditorGUILayout.BeginVertical(_boxStyle);
+            
+            // Header with app selector
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label("Active App", EditorStyles.boldLabel);
+            GUILayout.FlexibleSpace();
+            
+            // App dropdown
+            string[] appNames = new string[_config.Apps.Count];
+            for (int i = 0; i < _config.Apps.Count; i++)
+            {
+                var app = _config.Apps[i];
+                string typeLabel = app.Type != SteamAppType.Main ? $" [{app.Type}]" : "";
+                appNames[i] = $"{app.Name}{typeLabel} ({app.AppId})";
+            }
+            
+            int newIndex = EditorGUILayout.Popup(_config.ActiveAppIndex, appNames, GUILayout.Width(200));
+            if (newIndex != _config.ActiveAppIndex)
+            {
+                Undo.RecordObject(_config, "Change Active App");
+                _config.ActiveAppIndex = newIndex;
+                EditorUtility.SetDirty(_config);
+                _buildDeployStatus = $"Switched to: {_config.ActiveApp.Name}";
+            }
+            
+            if (GUILayout.Button("Edit", GUILayout.Width(40)))
+            {
+                _currentTab = Tab.AppInfo;
+            }
+            EditorGUILayout.EndHorizontal();
+
+            EditorGUILayout.Space(3);
+
+            // App details
+            EditorGUILayout.BeginHorizontal();
+            GUILayout.Label("App ID:", GUILayout.Width(80));
+            EditorGUILayout.SelectableLabel(activeApp.AppId.ToString(), EditorStyles.textField, GUILayout.Height(18));
+            
+            GUILayout.Label("Type:", GUILayout.Width(40));
+            GUILayout.Label(activeApp.Type.ToString(), EditorStyles.boldLabel, GUILayout.Width(70));
+            EditorGUILayout.EndHorizontal();
+
+            // Depots summary
+            if (activeApp.Depots != null && activeApp.Depots.Count > 0)
+            {
+                EditorGUILayout.BeginHorizontal();
+                GUILayout.Label("Depots:", GUILayout.Width(80));
+                
+                var depotNames = new List<string>();
+                foreach (var depot in activeApp.Depots)
+                {
+                    depotNames.Add($"{depot.Name} ({depot.DepotId})");
+                }
+                GUILayout.Label(string.Join(", ", depotNames), EditorStyles.miniLabel);
+                EditorGUILayout.EndHorizontal();
+            }
+            else
+            {
+                EditorGUILayout.HelpBox("No depots configured for this app. Go to App Info to add depots.", MessageType.Warning);
+            }
+
+            EditorGUILayout.EndVertical();
+        }
+
+        private void CheckVdfMismatch(SteamAppEntry activeApp)
+        {
+            if (string.IsNullOrEmpty(_buildConfig.ContentBuilderPath)) return;
+
+            string contentBuilderPath = System.IO.Path.GetFullPath(_buildConfig.ContentBuilderPath);
+            string scriptsPath = System.IO.Path.Combine(contentBuilderPath, "scripts");
+            string appVdfPath = System.IO.Path.Combine(scriptsPath, $"app_{activeApp.AppId}.vdf");
+
+            // Check if VDF exists for different app
+            if (System.IO.Directory.Exists(scriptsPath))
+            {
+                var vdfFiles = System.IO.Directory.GetFiles(scriptsPath, "app_*.vdf");
+                foreach (var vdf in vdfFiles)
+                {
+                    string fileName = System.IO.Path.GetFileName(vdf);
+                    if (fileName != $"app_{activeApp.AppId}.vdf")
+                    {
+                        // Extract App ID from filename
+                        string otherAppIdStr = fileName.Replace("app_", "").Replace(".vdf", "");
+                        if (uint.TryParse(otherAppIdStr, out uint otherAppId))
+                        {
+                            // Find app name if exists
+                            var otherApp = _config.Apps.Find(a => a.AppId == otherAppId);
+                            string otherAppName = otherApp != null ? otherApp.Name : $"App {otherAppId}";
+
+                            EditorGUILayout.BeginVertical(_boxStyle);
+                            EditorGUILayout.HelpBox(
+                                $"⚠️ VDF Mismatch Detected!\n\n" +
+                                $"Found VDF for: {otherAppName} ({otherAppId})\n" +
+                                $"Active App: {activeApp.Name} ({activeApp.AppId})\n\n" +
+                                $"Click 'Generate VDF' to create VDF files for the active app.",
+                                MessageType.Warning
+                            );
+
+                            EditorGUILayout.BeginHorizontal();
+                            if (GUILayout.Button("Generate VDF for Active App", GUILayout.Height(25)))
+                            {
+                                GenerateVdfFiles();
+                            }
+                            if (GUILayout.Button("Delete Old VDF", GUILayout.Height(25)))
+                            {
+                                if (EditorUtility.DisplayDialog("Delete VDF", 
+                                    $"Delete VDF files for {otherAppName} ({otherAppId})?", 
+                                    "Delete", "Cancel"))
+                                {
+                                    try
+                                    {
+                                        System.IO.File.Delete(vdf);
+                                        // Also delete depot VDFs
+                                        var depotVdfs = System.IO.Directory.GetFiles(scriptsPath, $"depot_*.vdf");
+                                        foreach (var depotVdf in depotVdfs)
+                                        {
+                                            System.IO.File.Delete(depotVdf);
+                                        }
+                                        _buildDeployStatus = "Old VDF files deleted.";
+                                    }
+                                    catch (System.Exception ex)
+                                    {
+                                        _buildDeployStatus = $"Failed to delete: {ex.Message}";
+                                    }
+                                }
+                            }
+                            EditorGUILayout.EndHorizontal();
+                            EditorGUILayout.EndVertical();
+                            return; // Only show one warning
+                        }
+                    }
+                }
+            }
+
+            // Check if correct VDF exists
+            if (!System.IO.File.Exists(appVdfPath))
+            {
+                EditorGUILayout.BeginVertical(_boxStyle);
+                EditorGUILayout.HelpBox(
+                    $"No VDF files found for {activeApp.Name} ({activeApp.AppId}).\n" +
+                    "Click 'Generate VDF' before uploading.",
+                    MessageType.Info
+                );
+                EditorGUILayout.EndVertical();
+            }
         }
 
         #region Build Deploy Fields
